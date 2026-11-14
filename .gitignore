@@ -1,0 +1,38 @@
+# Compiled class files
+*.class
+bin/
+target/
+
+# Package files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Log files
+*.log
+logs/
+
+# IDE and Project files
+.idea/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment and sensitive configurations
+*.env
+# Keep db.properties.example in version control; local overrides can be ignored if desired

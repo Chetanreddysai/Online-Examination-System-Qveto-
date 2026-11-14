@@ -1,0 +1,16 @@
+# ========================================================
+# Database Configuration Template (DO NOT COMMIT REAL PASSWORDS)
+# Copy this file to 'db.properties' and adjust for your local MySQL instance.
+# ========================================================
+
+db.url=jdbc:mysql://localhost:3306/online_exam_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+db.user=root
+db.password=root
+db.driver=com.mysql.cj.jdbc.Driver
+
+# Connection Pool Settings
+db.pool.initialSize=5
+db.pool.maxTotal=20
+db.pool.maxIdle=10
+db.pool.minIdle=2
+db.pool.maxWaitMillis=5000
