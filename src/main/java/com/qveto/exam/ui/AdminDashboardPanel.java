@@ -61,6 +61,14 @@ public class AdminDashboardPanel extends JPanel {
         adminNameLabel.setFont(AppConstants.FONT_BODY_BOLD);
         adminNameLabel.setForeground(Color.WHITE);
 
+        JButton profileBtn = new JButton("👤 My Profile");
+        profileBtn.setFont(AppConstants.FONT_SMALL);
+        profileBtn.setForeground(AppConstants.COLOR_PRIMARY);
+        profileBtn.setBackground(Color.WHITE);
+        profileBtn.setFocusPainted(false);
+        profileBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        profileBtn.addActionListener(e -> new UserProfileDialog(mainFrame, authService, this::refreshData).setVisible(true));
+
         JButton logoutBtn = new JButton("Sign Out");
         logoutBtn.setFont(AppConstants.FONT_SMALL);
         logoutBtn.setForeground(AppConstants.COLOR_PRIMARY);
@@ -70,6 +78,7 @@ public class AdminDashboardPanel extends JPanel {
         logoutBtn.addActionListener(e -> mainFrame.handleLogout());
 
         rightTopPanel.add(adminNameLabel);
+        rightTopPanel.add(profileBtn);
         rightTopPanel.add(logoutBtn);
 
         topBar.add(brandLabel, BorderLayout.WEST);
@@ -117,10 +126,52 @@ public class AdminDashboardPanel extends JPanel {
         JPanel examTab = new JPanel(new BorderLayout(0, 10));
         examTab.setBackground(Color.WHITE);
         examTab.setBorder(new EmptyBorder(12, 12, 12, 12));
+
+        JPanel examHeaderPanel = new JPanel(new BorderLayout());
+        examHeaderPanel.setOpaque(false);
+
         JLabel examTabHeader = new JLabel("Manage Published & Draft Examination Papers");
         examTabHeader.setFont(AppConstants.FONT_HEADER);
         examTabHeader.setForeground(AppConstants.COLOR_PRIMARY);
-        examTab.add(examTabHeader, BorderLayout.NORTH);
+
+        JPanel examActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        examActions.setOpaque(false);
+
+        JButton createExamBtn = new JButton("+ Create New Exam");
+        createExamBtn.setFont(AppConstants.FONT_BODY_BOLD);
+        createExamBtn.setForeground(Color.WHITE);
+        createExamBtn.setBackground(AppConstants.COLOR_PRIMARY);
+        createExamBtn.setFocusPainted(false);
+        createExamBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        createExamBtn.addActionListener(e -> new CreateExamDialog(mainFrame, examService, this::refreshData).setVisible(true));
+
+        JButton toggleExamBtn = new JButton("Toggle Status");
+        toggleExamBtn.setFont(AppConstants.FONT_BODY);
+        toggleExamBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        toggleExamBtn.addActionListener(e -> {
+            int row = examsTable.getSelectedRow();
+            if (row == -1) {
+                JOptionPane.showMessageDialog(this, "Please select an exam from the table to toggle its status.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int examId = (Integer) examsTableModel.getValueAt(row, 0);
+            examService.toggleExamStatus(examId);
+            refreshData();
+        });
+
+        JButton refreshExamsBtn = new JButton("🔄 Refresh");
+        refreshExamsBtn.setFont(AppConstants.FONT_BODY);
+        refreshExamsBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        refreshExamsBtn.addActionListener(e -> refreshData());
+
+        examActions.add(createExamBtn);
+        examActions.add(toggleExamBtn);
+        examActions.add(refreshExamsBtn);
+
+        examHeaderPanel.add(examTabHeader, BorderLayout.WEST);
+        examHeaderPanel.add(examActions, BorderLayout.EAST);
+
+        examTab.add(examHeaderPanel, BorderLayout.NORTH);
         examTab.add(examScroll, BorderLayout.CENTER);
 
         // Tab 2: Question Bank Table
@@ -141,10 +192,37 @@ public class AdminDashboardPanel extends JPanel {
         JPanel questionTab = new JPanel(new BorderLayout(0, 10));
         questionTab.setBackground(Color.WHITE);
         questionTab.setBorder(new EmptyBorder(12, 12, 12, 12));
+
+        JPanel questionHeaderPanel = new JPanel(new BorderLayout());
+        questionHeaderPanel.setOpaque(false);
+
         JLabel questionTabHeader = new JLabel("Central Reusable Question Bank (Cross-Exam Repository)");
         questionTabHeader.setFont(AppConstants.FONT_HEADER);
         questionTabHeader.setForeground(AppConstants.COLOR_SECONDARY);
-        questionTab.add(questionTabHeader, BorderLayout.NORTH);
+
+        JPanel questionActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        questionActions.setOpaque(false);
+
+        JButton addQuestionBtn = new JButton("+ Add Question to Bank");
+        addQuestionBtn.setFont(AppConstants.FONT_BODY_BOLD);
+        addQuestionBtn.setForeground(Color.WHITE);
+        addQuestionBtn.setBackground(AppConstants.COLOR_SECONDARY);
+        addQuestionBtn.setFocusPainted(false);
+        addQuestionBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        addQuestionBtn.addActionListener(e -> new AddQuestionDialog(mainFrame, examService, this::refreshData).setVisible(true));
+
+        JButton refreshQuestionsBtn = new JButton("🔄 Refresh");
+        refreshQuestionsBtn.setFont(AppConstants.FONT_BODY);
+        refreshQuestionsBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        refreshQuestionsBtn.addActionListener(e -> refreshData());
+
+        questionActions.add(addQuestionBtn);
+        questionActions.add(refreshQuestionsBtn);
+
+        questionHeaderPanel.add(questionTabHeader, BorderLayout.WEST);
+        questionHeaderPanel.add(questionActions, BorderLayout.EAST);
+
+        questionTab.add(questionHeaderPanel, BorderLayout.NORTH);
         questionTab.add(questionScroll, BorderLayout.CENTER);
 
         tabbedPane.addTab("Examination Papers", examTab);
@@ -199,20 +277,16 @@ public class AdminDashboardPanel extends JPanel {
 
         // Refresh question bank
         questionsTableModel.setRowCount(0);
-        int totalQ = 0;
-        for (Exam ex : exams) {
-            List<Question> qs = examService.getQuestionsForExam(ex.getExamId());
-            for (Question q : qs) {
-                totalQ++;
-                questionsTableModel.addRow(new Object[]{
-                        q.getQuestionId(),
-                        q.getSubject(),
-                        q.getQuestionText(),
-                        "Option " + q.getCorrectOption(),
-                        q.getMarks()
-                });
-            }
+        List<Question> bankQuestions = examService.getAllQuestionBank();
+        for (Question q : bankQuestions) {
+            questionsTableModel.addRow(new Object[]{
+                    q.getQuestionId(),
+                    q.getSubject(),
+                    q.getQuestionText(),
+                    "Option " + q.getCorrectOption(),
+                    q.getMarks()
+            });
         }
-        totalQuestionsLabel.setText(String.valueOf(totalQ));
+        totalQuestionsLabel.setText(String.valueOf(bankQuestions.size()));
     }
 }

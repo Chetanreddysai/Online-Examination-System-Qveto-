@@ -117,6 +117,23 @@ public class QuestionDAO {
         return false;
     }
 
+    /**
+     * Deletes a question from the question bank.
+     */
+    public boolean deleteQuestion(int questionId) {
+        String sql = "DELETE FROM questions WHERE question_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, questionId);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("[QuestionDAO] deleteQuestion error: " + e.getMessage());
+        }
+        return false;
+    }
+
     private Question mapResultSetToQuestion(ResultSet rs) throws SQLException {
         Question q = new Question();
         q.setQuestionId(rs.getInt("question_id"));

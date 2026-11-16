@@ -57,6 +57,14 @@ public class StudentDashboardPanel extends JPanel {
         studentNameLabel.setFont(AppConstants.FONT_BODY_BOLD);
         studentNameLabel.setForeground(Color.WHITE);
 
+        JButton profileBtn = new JButton("👤 My Profile & Security");
+        profileBtn.setFont(AppConstants.FONT_SMALL);
+        profileBtn.setForeground(AppConstants.COLOR_SECONDARY);
+        profileBtn.setBackground(Color.WHITE);
+        profileBtn.setFocusPainted(false);
+        profileBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        profileBtn.addActionListener(e -> new UserProfileDialog(mainFrame, authService, this::refreshData).setVisible(true));
+
         JButton logoutBtn = new JButton("Sign Out");
         logoutBtn.setFont(AppConstants.FONT_SMALL);
         logoutBtn.setForeground(AppConstants.COLOR_SECONDARY);
@@ -66,6 +74,7 @@ public class StudentDashboardPanel extends JPanel {
         logoutBtn.addActionListener(e -> mainFrame.handleLogout());
 
         rightTopPanel.add(studentNameLabel);
+        rightTopPanel.add(profileBtn);
         rightTopPanel.add(logoutBtn);
 
         topBar.add(brandLabel, BorderLayout.WEST);
@@ -131,7 +140,31 @@ public class StudentDashboardPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(examsTable);
         scroll.setBorder(new LineBorder(AppConstants.COLOR_BORDER, 1));
 
-        JButton startTestBtn = new JButton("Select Exam & Review Instructions");
+        JPanel examBtnRow = new JPanel(new GridLayout(1, 2, 8, 0));
+        examBtnRow.setOpaque(false);
+
+        JButton previewBtn = new JButton("📋 View Details & Syllabus");
+        previewBtn.setFont(AppConstants.FONT_BODY);
+        previewBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        previewBtn.addActionListener(e -> {
+            int selectedRow = examsTable.getSelectedRow();
+            if (selectedRow == -1) {
+                JOptionPane.showMessageDialog(this, "Please select an examination from the table to preview details.", "No Exam Selected", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int examId = (Integer) examsTableModel.getValueAt(selectedRow, 0);
+            List<Exam> exams = examService.getAvailableExams();
+            Exam targetExam = null;
+            for (Exam ex : exams) {
+                if (ex.getExamId() == examId) {
+                    targetExam = ex;
+                    break;
+                }
+            }
+            new ExamDetailsDialog((Frame) SwingUtilities.getWindowAncestor(this), targetExam).setVisible(true);
+        });
+
+        JButton startTestBtn = new JButton("Start Assessment");
         startTestBtn.setFont(AppConstants.FONT_BODY_BOLD);
         startTestBtn.setForeground(Color.WHITE);
         startTestBtn.setBackground(AppConstants.COLOR_PRIMARY);
@@ -146,15 +179,18 @@ public class StudentDashboardPanel extends JPanel {
             String title = (String) examsTableModel.getValueAt(selectedRow, 1);
             JOptionPane.showMessageDialog(this,
                     "Selected: " + title + "\n\n" +
-                    "Week 1 foundation active: Database & authentication verified.\n" +
-                    "The Timed Assessment Engine with auto-countdown is scheduled for Week 2-3.",
+                    "Examination registered!\n" +
+                    "The Timed Assessment Navigation screen with javax.swing.Timer countdown will launch here.",
                     "Examination Ready",
                     JOptionPane.INFORMATION_MESSAGE);
         });
 
+        examBtnRow.add(previewBtn);
+        examBtnRow.add(startTestBtn);
+
         examsPanel.add(examsHeader, BorderLayout.NORTH);
         examsPanel.add(scroll, BorderLayout.CENTER);
-        examsPanel.add(startTestBtn, BorderLayout.SOUTH);
+        examsPanel.add(examBtnRow, BorderLayout.SOUTH);
 
         // Right Panel: Instructions
         JPanel instructionsPanel = new JPanel(new BorderLayout(0, 10));

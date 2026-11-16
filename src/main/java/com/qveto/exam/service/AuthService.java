@@ -122,6 +122,88 @@ public class AuthService {
         return ValidationResult.success();
     }
 
+    /**
+     * Updates profile details (display name and phone) for the given user.
+     */
+    public ValidationResult updateProfile(int userId, String fullName, String phone) {
+        if (fullName == null || fullName.trim().length() < 2) {
+            return ValidationResult.failure("Full name must be at least 2 characters.");
+        }
+
+        User current = SessionManager.getCurrentUser();
+        if (current != null && current.getUserId() == userId) {
+            current.setFullName(fullName.trim());
+            current.setPhone(phone != null ? phone.trim() : null);
+        }
+
+        if (DBConnection.isDatabaseConnected()) {
+            boolean updated = userDAO.updateProfile(userId, fullName, phone);
+            if (!updated) {
+                return ValidationResult.failure("Database error while updating profile.");
+            }
+        }
+
+        // Also update in-memory mock store if found
+        for (User u : mockUsers.values()) {
+            if (u.getUserId() == userId) {
+                u.setFullName(fullName.trim());
+                u.setPhone(phone != null ? phone.trim() : null);
+                break;
+            }
+        }
+
+        return ValidationResult.success();
+    }
+
+    /**
+     * Changes user's password after verifying existing password and confirmation.
+     */
+    public ValidationResult updatePassword(int userId, String oldPassword, String newPassword, String confirmPassword) {
+        if (oldPassword == null || oldPassword.isEmpty()) {
+            return ValidationResult.failure("Current password is required.");
+        }
+        if (newPassword == null || !InputValidator.isValidPassword(newPassword)) {
+            return ValidationResult.failure("New password must be at least 6 characters long.");
+        }
+        if (!newPassword.equals(confirmPassword)) {
+            return ValidationResult.failure("New password and confirmation do not match.");
+        }
+
+        User current = SessionManager.getCurrentUser();
+        String userEmail = current != null ? current.getEmail() : null;
+
+        // Verify old password
+        if (DBConnection.isDatabaseConnected() && userEmail != null) {
+            User verified = userDAO.authenticate(userEmail, oldPassword);
+            if (verified == null) {
+                return ValidationResult.failure("Current password is incorrect.");
+            }
+            boolean changed = userDAO.updatePassword(userId, newPassword);
+            if (!changed) {
+                return ValidationResult.failure("Database error while updating password.");
+            }
+            if (current != null) {
+                current.setPasswordHash(PasswordUtil.hash(newPassword));
+            }
+            return ValidationResult.success();
+        }
+
+        // Offline Fallback Verification
+        if (userEmail != null) {
+            String stored = mockPasswords.get(userEmail);
+            if (stored == null || !stored.equals(oldPassword)) {
+                return ValidationResult.failure("Current password is incorrect.");
+            }
+            mockPasswords.put(userEmail, newPassword);
+            if (current != null) {
+                current.setPasswordHash(PasswordUtil.hash(newPassword));
+            }
+            return ValidationResult.success();
+        }
+
+        return ValidationResult.failure("Active session not found.");
+    }
+
     public void logout() {
         SessionManager.logout();
     }

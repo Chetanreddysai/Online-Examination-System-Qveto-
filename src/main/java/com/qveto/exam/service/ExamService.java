@@ -6,6 +6,8 @@ import com.qveto.exam.dao.QuestionDAO;
 import com.qveto.exam.dao.ResultDAO;
 import com.qveto.exam.model.*;
 import com.qveto.exam.util.DBConnection;
+import com.qveto.exam.validation.InputValidator;
+import com.qveto.exam.validation.ValidationResult;
 
 import java.util.*;
 
@@ -22,6 +24,7 @@ public class ExamService {
     // Fallback data for offline mode
     private static final List<Exam> mockExams = new ArrayList<>();
     private static final Map<Integer, List<Question>> mockExamQuestions = new HashMap<>();
+    private static final List<Question> mockStandaloneQuestions = new ArrayList<>();
 
     static {
         Exam ex1 = new Exam(1, "Java Core & Swing Fundamentals",
@@ -77,6 +80,123 @@ public class ExamService {
             }
         }
         return mockExamQuestions.getOrDefault(examId, Collections.emptyList());
+    }
+
+    /**
+     * Retrieves all questions in the central question bank.
+     */
+    public List<Question> getAllQuestionBank() {
+        if (DBConnection.isDatabaseConnected()) {
+            List<Question> questions = questionDAO.getAllQuestions();
+            if (!questions.isEmpty()) {
+                return questions;
+            }
+        }
+        List<Question> all = new ArrayList<>(mockStandaloneQuestions);
+        for (List<Question> list : mockExamQuestions.values()) {
+            for (Question q : list) {
+                if (!all.contains(q)) {
+                    all.add(q);
+                }
+            }
+        }
+        return all;
+    }
+
+    /**
+     * Creates a new examination paper with input validation and persistence.
+     */
+    public ValidationResult createExam(Exam exam) {
+        if (exam == null) {
+            return ValidationResult.failure("Exam payload cannot be null.");
+        }
+
+        ValidationResult val = InputValidator.validateExam(
+                exam.getTitle(),
+                exam.getDurationMinutes(),
+                exam.getTotalQuestions(),
+                exam.getTotalMarks(),
+                exam.getPassingPercentage()
+        );
+        if (!val.isValid()) {
+            return val;
+        }
+
+        if (DBConnection.isDatabaseConnected()) {
+            boolean created = examDAO.createExam(exam);
+            if (!created) {
+                return ValidationResult.failure("Database error while creating exam.");
+            }
+        }
+
+        // Keep mock store synchronized
+        if (exam.getExamId() <= 0) {
+            exam.setExamId(mockExams.size() + 10);
+        }
+        mockExams.add(exam);
+        return ValidationResult.success();
+    }
+
+    /**
+     * Adds a new multiple-choice question to the question bank and optionally maps it to an exam.
+     */
+    public ValidationResult addQuestionToBank(Question question, Integer targetExamId) {
+        if (question == null) {
+            return ValidationResult.failure("Question cannot be null.");
+        }
+
+        ValidationResult val = InputValidator.validateQuestion(
+                question.getSubject(),
+                question.getQuestionText(),
+                question.getOptionA(),
+                question.getOptionB(),
+                question.getOptionC(),
+                question.getOptionD(),
+                question.getCorrectOption()
+        );
+        if (!val.isValid()) {
+            return val;
+        }
+
+        if (DBConnection.isDatabaseConnected()) {
+            boolean added = questionDAO.addQuestion(question);
+            if (!added) {
+                return ValidationResult.failure("Database error while adding question.");
+            }
+            if (targetExamId != null && targetExamId > 0) {
+                int order = questionDAO.getQuestionsForExam(targetExamId).size() + 1;
+                questionDAO.linkQuestionToExam(targetExamId, question.getQuestionId(), order);
+            }
+        }
+
+        // Keep mock store synchronized
+        if (question.getQuestionId() <= 0) {
+            question.setQuestionId(200 + (int)(System.currentTimeMillis() % 1000));
+        }
+        if (targetExamId != null && targetExamId > 0) {
+            mockExamQuestions.computeIfAbsent(targetExamId, k -> new ArrayList<>()).add(question);
+        } else {
+            mockStandaloneQuestions.add(question);
+        }
+
+        return ValidationResult.success();
+    }
+
+    /**
+     * Toggles an exam's active status between active and inactive.
+     */
+    public boolean toggleExamStatus(int examId) {
+        for (Exam ex : mockExams) {
+            if (ex.getExamId() == examId) {
+                boolean newStatus = !ex.isActive();
+                ex.setActive(newStatus);
+                if (DBConnection.isDatabaseConnected()) {
+                    examDAO.toggleActive(examId, newStatus);
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

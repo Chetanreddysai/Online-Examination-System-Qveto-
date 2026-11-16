@@ -101,6 +101,22 @@ public class ExamDAO {
         return false;
     }
 
+    public boolean toggleActive(int examId, boolean active) {
+        String sql = "UPDATE exams SET is_active = ? WHERE exam_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setBoolean(1, active);
+            stmt.setInt(2, examId);
+
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("[ExamDAO] toggleActive error: " + e.getMessage());
+        }
+        return false;
+    }
+
     private Exam mapResultSetToExam(ResultSet rs) throws SQLException {
         Exam exam = new Exam();
         exam.setExamId(rs.getInt("exam_id"));

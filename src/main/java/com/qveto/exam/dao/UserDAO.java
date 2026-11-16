@@ -115,6 +115,26 @@ public class UserDAO {
     }
 
     /**
+     * Updates user's profile information (display name and phone).
+     */
+    public boolean updateProfile(int userId, String fullName, String phone) {
+        String sql = "UPDATE users SET full_name = ?, phone = ? WHERE user_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, fullName.trim());
+            stmt.setString(2, phone != null ? phone.trim() : null);
+            stmt.setInt(3, userId);
+
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("[UserDAO] updateProfile error: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
      * Fetches all registered students.
      */
     public List<User> getAllStudents() {

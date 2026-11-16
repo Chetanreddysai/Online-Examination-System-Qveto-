@@ -19,6 +19,7 @@ public class TestRunner {
         testClasses.add(InputValidatorTest.class);
         testClasses.add(ModelTest.class);
         testClasses.add(AuthServiceTest.class);
+        testClasses.add(ExamServiceTest.class);
 
         int total = 0;
         int passed = 0;
