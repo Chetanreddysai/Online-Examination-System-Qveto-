@@ -12,13 +12,15 @@ public final class AppConstants {
 
     // Application Metadata
     public static final String APP_TITLE = "Qveto Online Examination System";
-    public static final String APP_VERSION = "v1.0.0 (Week 1 Build)";
+    public static final String APP_VERSION = "v1.2.0 (Week 3 Build)";
 
     // Navigation Card Names for CardLayout
     public static final String CARD_LOGIN = "CARD_LOGIN";
     public static final String CARD_REGISTER = "CARD_REGISTER";
     public static final String CARD_ADMIN_DASHBOARD = "CARD_ADMIN_DASHBOARD";
     public static final String CARD_STUDENT_DASHBOARD = "CARD_STUDENT_DASHBOARD";
+    public static final String CARD_TIMED_EXAM = "CARD_TIMED_EXAM";
+    public static final String CARD_RESULT = "CARD_RESULT";
 
     // Palette Colors
     public static final Color COLOR_PRIMARY = new Color(30, 64, 175);       // Deep Blue (#1E40AF)
@@ -29,6 +31,7 @@ public final class AppConstants {
     public static final Color COLOR_TEXT_PRIMARY = new Color(17, 24, 39);   // Near Black (#111827)
     public static final Color COLOR_TEXT_MUTED = new Color(107, 114, 128);  // Gray (#6B7280)
     public static final Color COLOR_SUCCESS = new Color(16, 185, 129);      // Green (#10B981)
+    public static final Color COLOR_WARNING = new Color(245, 158, 11);      // Amber (#F59E0B)
     public static final Color COLOR_DANGER = new Color(239, 68, 68);        // Red (#EF4444)
     public static final Color COLOR_BORDER = new Color(229, 231, 235);      // Soft Gray Border
 

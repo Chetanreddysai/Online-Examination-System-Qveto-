@@ -200,9 +200,40 @@ public class ExamService {
     }
 
     /**
-     * Calculates score, marks, percentage, and passed state given student's answers.
+     * Initializes a new student exam attempt session.
      */
-    public ExamResult gradeAttempt(int attemptId, int userId, Exam exam, List<Question> questions, Map<Integer, String> selectedAnswers) {
+    public ExamAttempt startAttempt(int userId, int examId) {
+        if (DBConnection.isDatabaseConnected()) {
+            ExamAttempt attempt = attemptDAO.createAttempt(userId, examId);
+            if (attempt != null) {
+                return attempt;
+            }
+        }
+        ExamAttempt mockAttempt = new ExamAttempt();
+        mockAttempt.setAttemptId(1000 + (int)(System.currentTimeMillis() % 10000));
+        mockAttempt.setUserId(userId);
+        mockAttempt.setExamId(examId);
+        mockAttempt.setStatus(AttemptStatus.IN_PROGRESS);
+        mockAttempt.setStartTime(new java.sql.Timestamp(System.currentTimeMillis()));
+        return mockAttempt;
+    }
+
+    /**
+     * Persists candidate's answer for a question during navigation.
+     */
+    public boolean recordAnswer(int attemptId, int questionId, String selectedOption) {
+        if (DBConnection.isDatabaseConnected()) {
+            return attemptDAO.saveAnswer(attemptId, questionId, selectedOption);
+        }
+        return true;
+    }
+
+    /**
+     * Calculates score, marks, percentage, and passed state given student's answers,
+     * and finalizes the attempt record.
+     */
+    public ExamResult gradeAttempt(int attemptId, int userId, Exam exam, List<Question> questions,
+                                   Map<Integer, String> selectedAnswers, SubmissionType submissionType) {
         int totalQuestions = questions.size();
         int answeredCount = 0;
         int correctCount = 0;
@@ -236,9 +267,18 @@ public class ExamService {
 
         if (DBConnection.isDatabaseConnected()) {
             resultDAO.saveResult(result);
-            attemptDAO.completeAttempt(attemptId, SubmissionType.MANUAL, AttemptStatus.SUBMITTED, totalScore, percentage, passed);
+            AttemptStatus status = (submissionType == SubmissionType.AUTO_TIMEOUT)
+                    ? AttemptStatus.TIMED_OUT : AttemptStatus.SUBMITTED;
+            attemptDAO.completeAttempt(attemptId, submissionType, status, totalScore, percentage, passed);
         }
 
         return result;
+    }
+
+    /**
+     * Overload for backward compatibility defaulting to manual submission.
+     */
+    public ExamResult gradeAttempt(int attemptId, int userId, Exam exam, List<Question> questions, Map<Integer, String> selectedAnswers) {
+        return gradeAttempt(attemptId, userId, exam, questions, selectedAnswers, SubmissionType.MANUAL);
     }
 }

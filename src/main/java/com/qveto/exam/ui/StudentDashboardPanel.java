@@ -176,13 +176,18 @@ public class StudentDashboardPanel extends JPanel {
                 JOptionPane.showMessageDialog(this, "Please select an examination from the table above.", "No Exam Selected", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            String title = (String) examsTableModel.getValueAt(selectedRow, 1);
-            JOptionPane.showMessageDialog(this,
-                    "Selected: " + title + "\n\n" +
-                    "Examination registered!\n" +
-                    "The Timed Assessment Navigation screen with javax.swing.Timer countdown will launch here.",
-                    "Examination Ready",
-                    JOptionPane.INFORMATION_MESSAGE);
+            int examId = (Integer) examsTableModel.getValueAt(selectedRow, 0);
+            List<Exam> exams = examService.getAvailableExams();
+            Exam targetExam = null;
+            for (Exam ex : exams) {
+                if (ex.getExamId() == examId) {
+                    targetExam = ex;
+                    break;
+                }
+            }
+            if (targetExam != null) {
+                mainFrame.startExam(targetExam);
+            }
         });
 
         examBtnRow.add(previewBtn);

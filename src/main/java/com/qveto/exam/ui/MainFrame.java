@@ -1,5 +1,8 @@
 package com.qveto.exam.ui;
 
+import com.qveto.exam.model.Exam;
+import com.qveto.exam.model.ExamResult;
+import com.qveto.exam.model.Question;
 import com.qveto.exam.service.AuthService;
 import com.qveto.exam.service.ExamService;
 import com.qveto.exam.util.AppConstants;
@@ -8,10 +11,13 @@ import com.qveto.exam.util.SessionManager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Main application window utilizing CardLayout for seamless screen transitions.
- * Coordinates views between Login, Registration, Admin Dashboard, and Student Dashboard.
+ * Coordinates views between Login, Registration, Admin Dashboard, Student Dashboard,
+ * Timed Examination, and Results Breakdown.
  */
 public class MainFrame extends JFrame {
 
@@ -25,6 +31,8 @@ public class MainFrame extends JFrame {
     private RegisterPanel registerPanel;
     private AdminDashboardPanel adminDashboardPanel;
     private StudentDashboardPanel studentDashboardPanel;
+    private TimedExamPanel timedExamPanel;
+    private ExamResultPanel examResultPanel;
 
     public MainFrame() {
         super(AppConstants.APP_TITLE + " - " + AppConstants.APP_VERSION);
@@ -55,11 +63,31 @@ public class MainFrame extends JFrame {
         registerPanel = new RegisterPanel(this, authService);
         adminDashboardPanel = new AdminDashboardPanel(this, authService, examService);
         studentDashboardPanel = new StudentDashboardPanel(this, authService, examService);
+        timedExamPanel = new TimedExamPanel(this, examService);
+        examResultPanel = new ExamResultPanel(this);
 
         cardsPanel.add(loginPanel, AppConstants.CARD_LOGIN);
         cardsPanel.add(registerPanel, AppConstants.CARD_REGISTER);
         cardsPanel.add(adminDashboardPanel, AppConstants.CARD_ADMIN_DASHBOARD);
         cardsPanel.add(studentDashboardPanel, AppConstants.CARD_STUDENT_DASHBOARD);
+        cardsPanel.add(timedExamPanel, AppConstants.CARD_TIMED_EXAM);
+        cardsPanel.add(examResultPanel, AppConstants.CARD_RESULT);
+    }
+
+    /**
+     * Launches a timed examination session for a candidate.
+     */
+    public void startExam(Exam exam) {
+        timedExamPanel.startAssessment(exam);
+        showCard(AppConstants.CARD_TIMED_EXAM);
+    }
+
+    /**
+     * Transitions from an active test session to the final scored results view.
+     */
+    public void showExamResult(ExamResult result, Exam exam, List<Question> questions, Map<Integer, String> selectedAnswers) {
+        examResultPanel.displayResult(result, exam, questions, selectedAnswers);
+        showCard(AppConstants.CARD_RESULT);
     }
 
     /**

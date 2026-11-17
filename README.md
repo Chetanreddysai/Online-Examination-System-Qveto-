@@ -60,7 +60,9 @@ src/main/java/com/qveto/exam/
     ├── CreateExamDialog.java      # Admin modal to create & configure exams
     ├── AddQuestionDialog.java     # Admin modal to author reusable MCQs
     ├── UserProfileDialog.java     # Student & Admin profile / password management
-    └── ExamDetailsDialog.java     # Pre-exam syllabus overview & instructions modal
+    ├── ExamDetailsDialog.java     # Pre-exam syllabus overview & instructions modal
+    ├── TimedExamPanel.java        # Active assessment with timer, navigation & palette
+    └── ExamResultPanel.java       # Graded results, pass/fail status & question review
 ```
 
 ---
