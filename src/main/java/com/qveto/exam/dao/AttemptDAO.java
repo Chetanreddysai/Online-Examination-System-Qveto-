@@ -7,7 +7,9 @@ import com.qveto.exam.util.DBConnection;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Data Access Object for exam attempts and candidate answer persistence.
@@ -118,5 +120,27 @@ public class AttemptDAO {
             System.err.println("[AttemptDAO] getAttemptsByUser error: " + e.getMessage());
         }
         return attempts;
+    }
+
+    /**
+     * Retrieves saved answer selections for a specific attempt session.
+     */
+    public Map<Integer, String> getAnswersForAttempt(int attemptId) {
+        Map<Integer, String> answers = new HashMap<>();
+        String sql = "SELECT question_id, selected_option FROM attempt_answers WHERE attempt_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    answers.put(rs.getInt("question_id"), rs.getString("selected_option"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAnswersForAttempt error: " + e.getMessage());
+        }
+        return answers;
     }
 }

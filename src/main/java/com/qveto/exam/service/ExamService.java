@@ -9,6 +9,10 @@ import com.qveto.exam.util.DBConnection;
 import com.qveto.exam.validation.InputValidator;
 import com.qveto.exam.validation.ValidationResult;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.*;
 
 /**
@@ -25,6 +29,8 @@ public class ExamService {
     private static final List<Exam> mockExams = new ArrayList<>();
     private static final Map<Integer, List<Question>> mockExamQuestions = new HashMap<>();
     private static final List<Question> mockStandaloneQuestions = new ArrayList<>();
+    private static final List<ExamResult> mockResults = new ArrayList<>();
+    private static final Map<Integer, Map<Integer, String>> mockAttemptAnswers = new HashMap<>();
 
     static {
         Exam ex1 = new Exam(1, "Java Core & Swing Fundamentals",
@@ -53,6 +59,23 @@ public class ExamService {
                 new Question(10, "DBMS", "What does ACID stand for in database transaction management?", "Atomicity, Consistency, Isolation, Durability", "Accuracy, Concurrency, Integrity, Durability", "Atomicity, Compatibility, Isolation, Dependency", "Access, Consistency, Indexing, Data", "A", 10.0)
         );
         mockExamQuestions.put(2, dbQuestions);
+
+        // Seed initial mock exam results
+        ExamResult r1 = new ExamResult(1, 1, 2, 1, 5, 5, 4, 1, 40.0, 50.0, 80.0, true, new java.sql.Timestamp(System.currentTimeMillis() - 7200000));
+        r1.setExamTitle("Java Core & Swing Fundamentals");
+        r1.setStudentName("Aarav Patel");
+        mockResults.add(r1);
+        Map<Integer, String> r1Answers = new HashMap<>();
+        r1Answers.put(1, "C"); r1Answers.put(2, "B"); r1Answers.put(3, "B"); r1Answers.put(4, "A"); r1Answers.put(5, "A");
+        mockAttemptAnswers.put(1, r1Answers);
+
+        ExamResult r2 = new ExamResult(2, 2, 3, 2, 5, 5, 5, 0, 50.0, 50.0, 100.0, true, new java.sql.Timestamp(System.currentTimeMillis() - 3600000));
+        r2.setExamTitle("Database Management Systems & SQL");
+        r2.setStudentName("Diya Sharma");
+        mockResults.add(r2);
+        Map<Integer, String> r2Answers = new HashMap<>();
+        r2Answers.put(6, "C"); r2Answers.put(7, "B"); r2Answers.put(8, "C"); r2Answers.put(9, "C"); r2Answers.put(10, "A");
+        mockAttemptAnswers.put(2, r2Answers);
     }
 
     public ExamService() {
@@ -272,6 +295,13 @@ public class ExamService {
             attemptDAO.completeAttempt(attemptId, submissionType, status, totalScore, percentage, passed);
         }
 
+        // Keep mock/offline history synchronized
+        if (result.getResultId() <= 0) {
+            result.setResultId(mockResults.size() + 10);
+        }
+        mockResults.add(0, result);
+        mockAttemptAnswers.put(attemptId, new HashMap<>(selectedAnswers));
+
         return result;
     }
 
@@ -280,5 +310,85 @@ public class ExamService {
      */
     public ExamResult gradeAttempt(int attemptId, int userId, Exam exam, List<Question> questions, Map<Integer, String> selectedAnswers) {
         return gradeAttempt(attemptId, userId, exam, questions, selectedAnswers, SubmissionType.MANUAL);
+    }
+
+    /**
+     * Retrieves examination history for a specific candidate.
+     */
+    public List<ExamResult> getStudentHistory(int userId) {
+        if (DBConnection.isDatabaseConnected()) {
+            List<ExamResult> results = resultDAO.getResultsByUser(userId);
+            if (!results.isEmpty()) {
+                return results;
+            }
+        }
+        List<ExamResult> userHistory = new ArrayList<>();
+        for (ExamResult r : mockResults) {
+            if (r.getUserId() == userId) {
+                userHistory.add(r);
+            }
+        }
+        return userHistory;
+    }
+
+    /**
+     * Retrieves all candidate examination results across all exams and students.
+     */
+    public List<ExamResult> getAllCandidateResults() {
+        if (DBConnection.isDatabaseConnected()) {
+            List<ExamResult> results = resultDAO.getAllResults();
+            if (!results.isEmpty()) {
+                return results;
+            }
+        }
+        return new ArrayList<>(mockResults);
+    }
+
+    /**
+     * Retrieves answers selected for a specific attempt for detailed review.
+     */
+    public Map<Integer, String> getAnswersForAttempt(int attemptId) {
+        if (DBConnection.isDatabaseConnected()) {
+            Map<Integer, String> dbAnswers = attemptDAO.getAnswersForAttempt(attemptId);
+            if (!dbAnswers.isEmpty()) {
+                return dbAnswers;
+            }
+        }
+        return mockAttemptAnswers.getOrDefault(attemptId, Collections.emptyMap());
+    }
+
+    /**
+     * Exports candidate assessment results to a CSV spreadsheet file.
+     */
+    public boolean exportResultsToCSV(File file, List<ExamResult> results) {
+        if (file == null || results == null) {
+            return false;
+        }
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+            // Write CSV Header
+            writer.println("Result ID,Candidate Name,Exam Title,Total Questions,Answered,Correct,Incorrect,Score,Total Marks,Percentage,Outcome,Graded At");
+
+            for (ExamResult r : results) {
+                writer.printf("%d,\"%s\",\"%s\",%d,%d,%d,%d,%.2f,%.2f,%.2f%%,%s,\"%s\"%n",
+                        r.getResultId(),
+                        r.getStudentName() != null ? r.getStudentName().replace("\"", "\"\"") : "Candidate",
+                        r.getExamTitle() != null ? r.getExamTitle().replace("\"", "\"\"") : "Exam",
+                        r.getTotalQuestions(),
+                        r.getAnsweredCount(),
+                        r.getCorrectCount(),
+                        r.getIncorrectCount(),
+                        r.getScore(),
+                        r.getTotalMarks(),
+                        r.getPercentage(),
+                        r.isPassed() ? "PASSED" : "FAILED",
+                        r.getGradedAt() != null ? r.getGradedAt().toString() : ""
+                );
+            }
+            return true;
+        } catch (IOException e) {
+            System.err.println("[ExamService] exportResultsToCSV error: " + e.getMessage());
+            return false;
+        }
     }
 }

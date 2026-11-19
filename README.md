@@ -55,14 +55,15 @@ src/main/java/com/qveto/exam/
     ├── MainFrame.java      # JFrame window managing CardLayout navigation
     ├── LoginPanel.java     # Sign in screen with quick demo fill buttons
     ├── RegisterPanel.java  # Student self-registration screen
-    ├── AdminDashboardPanel.java   # Admin portal & metrics overview
-    ├── StudentDashboardPanel.java # Candidate portal & assessment rules
+    ├── AdminDashboardPanel.java   # Admin portal, question bank & candidate results reporting
+    ├── StudentDashboardPanel.java # Candidate portal, catalog & assessment history
     ├── CreateExamDialog.java      # Admin modal to create & configure exams
     ├── AddQuestionDialog.java     # Admin modal to author reusable MCQs
     ├── UserProfileDialog.java     # Student & Admin profile / password management
     ├── ExamDetailsDialog.java     # Pre-exam syllabus overview & instructions modal
     ├── TimedExamPanel.java        # Active assessment with timer, navigation & palette
-    └── ExamResultPanel.java       # Graded results, pass/fail status & question review
+    ├── ExamResultPanel.java       # Graded results, pass/fail status & question review
+    └── AttemptReviewDialog.java   # Modal breakdown dialog for past assessment submissions
 ```
 
 ---

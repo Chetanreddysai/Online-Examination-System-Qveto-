@@ -1,6 +1,7 @@
 package com.qveto.exam.ui;
 
 import com.qveto.exam.model.Exam;
+import com.qveto.exam.model.ExamResult;
 import com.qveto.exam.model.User;
 import com.qveto.exam.service.AuthService;
 import com.qveto.exam.service.ExamService;
@@ -10,8 +11,10 @@ import com.qveto.exam.util.SessionManager;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -29,6 +32,11 @@ public class StudentDashboardPanel extends JPanel {
     private JLabel studentEmailLabel;
     private JTable examsTable;
     private DefaultTableModel examsTableModel;
+
+    // Assessment History
+    private JTable historyTable;
+    private DefaultTableModel historyTableModel;
+    private final List<ExamResult> currentStudentHistory = new ArrayList<>();
 
     public StudentDashboardPanel(MainFrame mainFrame, AuthService authService, ExamService examService) {
         this.mainFrame = mainFrame;
@@ -236,9 +244,90 @@ public class StudentDashboardPanel extends JPanel {
 
         centerSplit.add(examsPanel);
         centerSplit.add(instructionsPanel);
-        contentPanel.add(centerSplit, BorderLayout.CENTER);
 
+        // Tabbed Workspaces for Student
+        JTabbedPane studentTabs = new JTabbedPane();
+        studentTabs.setFont(AppConstants.FONT_SUBHEADER);
+        studentTabs.addTab("Available Examinations", centerSplit);
+        studentTabs.addTab("My Assessment History & Reports", createHistoryPanel());
+
+        contentPanel.add(studentTabs, BorderLayout.CENTER);
         add(contentPanel, BorderLayout.CENTER);
+    }
+
+    private JPanel createHistoryPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(AppConstants.COLOR_BORDER, 1, true),
+                new EmptyBorder(16, 16, 16, 16)
+        ));
+
+        // Header toolbar
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setOpaque(false);
+
+        JLabel title = new JLabel("My Completed Assessments & Graded Reports");
+        title.setFont(AppConstants.FONT_HEADER);
+        title.setForeground(AppConstants.COLOR_PRIMARY);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+
+        JButton viewBreakdownBtn = new JButton("🔍 View Performance Breakdown");
+        viewBreakdownBtn.setFont(AppConstants.FONT_BODY_BOLD);
+        viewBreakdownBtn.setForeground(Color.WHITE);
+        viewBreakdownBtn.setBackground(AppConstants.COLOR_PRIMARY);
+        viewBreakdownBtn.setFocusPainted(false);
+        viewBreakdownBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        viewBreakdownBtn.addActionListener(e -> {
+            int selectedRow = historyTable.getSelectedRow();
+            if (selectedRow == -1) {
+                JOptionPane.showMessageDialog(this, "Please select an attempt from the table below to review answers.", "No Selection", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (selectedRow < currentStudentHistory.size()) {
+                ExamResult res = currentStudentHistory.get(selectedRow);
+                new AttemptReviewDialog((Frame) SwingUtilities.getWindowAncestor(this), res, examService).setVisible(true);
+            }
+        });
+
+        JButton refreshBtn = new JButton("🔄 Refresh");
+        refreshBtn.setFont(AppConstants.FONT_BODY);
+        refreshBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        refreshBtn.addActionListener(e -> refreshData());
+
+        actions.add(viewBreakdownBtn);
+        actions.add(refreshBtn);
+
+        headerPanel.add(title, BorderLayout.WEST);
+        headerPanel.add(actions, BorderLayout.EAST);
+        panel.add(headerPanel, BorderLayout.NORTH);
+
+        // History Table
+        String[] cols = {"Result ID", "Assessment Title", "Score Earned", "Max Marks", "Percentage", "Outcome", "Date & Time"};
+        historyTableModel = new DefaultTableModel(cols, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        historyTable = new JTable(historyTableModel);
+        historyTable.setRowHeight(28);
+        historyTable.setFont(AppConstants.FONT_BODY);
+        historyTable.getTableHeader().setFont(AppConstants.FONT_BODY_BOLD);
+
+        DefaultTableCellRenderer center = new DefaultTableCellRenderer();
+        center.setHorizontalAlignment(JLabel.CENTER);
+        historyTable.getColumnModel().getColumn(0).setCellRenderer(center);
+        historyTable.getColumnModel().getColumn(2).setCellRenderer(center);
+        historyTable.getColumnModel().getColumn(3).setCellRenderer(center);
+        historyTable.getColumnModel().getColumn(4).setCellRenderer(center);
+        historyTable.getColumnModel().getColumn(5).setCellRenderer(center);
+
+        JScrollPane scroll = new JScrollPane(historyTable);
+        scroll.setBorder(new LineBorder(AppConstants.COLOR_BORDER, 1));
+        panel.add(scroll, BorderLayout.CENTER);
+
+        return panel;
     }
 
     public void refreshData() {
@@ -248,6 +337,7 @@ public class StudentDashboardPanel extends JPanel {
             studentEmailLabel.setText("Candidate Email: " + user.getEmail() + " | Role: Student");
         }
 
+        // 1. Refresh available exams
         examsTableModel.setRowCount(0);
         List<Exam> exams = examService.getAvailableExams();
         for (Exam ex : exams) {
@@ -261,6 +351,25 @@ public class StudentDashboardPanel extends JPanel {
         }
         if (examsTable.getRowCount() > 0) {
             examsTable.setRowSelectionInterval(0, 0);
+        }
+
+        // 2. Refresh student history
+        historyTableModel.setRowCount(0);
+        currentStudentHistory.clear();
+        int userId = user != null ? user.getUserId() : 2;
+        List<ExamResult> history = examService.getStudentHistory(userId);
+        currentStudentHistory.addAll(history);
+
+        for (ExamResult r : history) {
+            historyTableModel.addRow(new Object[]{
+                    r.getResultId(),
+                    r.getExamTitle() != null ? r.getExamTitle() : "Assessment #" + r.getExamId(),
+                    String.format("%.1f", r.getScore()),
+                    String.format("%.1f", r.getTotalMarks()),
+                    String.format("%.1f%%", r.getPercentage()),
+                    r.isPassed() ? "✔ PASSED" : "✘ FAILED",
+                    r.getGradedAt() != null ? r.getGradedAt().toString() : "Recent"
+            });
         }
     }
 }

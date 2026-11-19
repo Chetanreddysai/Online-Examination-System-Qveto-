@@ -21,6 +21,7 @@ public class TestRunner {
         testClasses.add(AuthServiceTest.class);
         testClasses.add(ExamServiceTest.class);
         testClasses.add(TimedExamWorkflowTest.class);
+        testClasses.add(ResultReportingTest.class);
 
         int total = 0;
         int passed = 0;

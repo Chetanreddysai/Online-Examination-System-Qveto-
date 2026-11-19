@@ -12,7 +12,7 @@ public final class AppConstants {
 
     // Application Metadata
     public static final String APP_TITLE = "Qveto Online Examination System";
-    public static final String APP_VERSION = "v1.2.0 (Week 3 Build)";
+    public static final String APP_VERSION = "v1.3.0 (Week 4 Build)";
 
     // Navigation Card Names for CardLayout
     public static final String CARD_LOGIN = "CARD_LOGIN";
