@@ -18,6 +18,7 @@ public class TestRunner {
         testClasses.add(PasswordUtilTest.class);
         testClasses.add(InputValidatorTest.class);
         testClasses.add(ModelTest.class);
+        testClasses.add(DAOTest.class);
         testClasses.add(AuthServiceTest.class);
         testClasses.add(ExamServiceTest.class);
         testClasses.add(TimedExamWorkflowTest.class);
