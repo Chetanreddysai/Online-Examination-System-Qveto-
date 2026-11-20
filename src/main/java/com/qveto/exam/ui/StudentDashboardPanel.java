@@ -15,6 +15,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,6 +33,8 @@ public class StudentDashboardPanel extends JPanel {
     private JLabel studentEmailLabel;
     private JTable examsTable;
     private DefaultTableModel examsTableModel;
+    private JTextField examSearchField;
+    private final List<Exam> cachedAvailableExams = new ArrayList<>();
 
     // Assessment History
     private JTable historyTable;
@@ -201,8 +204,35 @@ public class StudentDashboardPanel extends JPanel {
         examBtnRow.add(previewBtn);
         examBtnRow.add(startTestBtn);
 
+        // Filter toolbar
+        JPanel filterToolbar = new JPanel(new BorderLayout(8, 0));
+        filterToolbar.setOpaque(false);
+        JLabel searchIcon = new JLabel("🔍 Filter: ");
+        searchIcon.setFont(AppConstants.FONT_BODY_BOLD);
+        searchIcon.setForeground(AppConstants.COLOR_TEXT_PRIMARY);
+
+        examSearchField = new JTextField();
+        examSearchField.setFont(AppConstants.FONT_BODY);
+        examSearchField.setToolTipText("Filter examinations by title or keyword");
+        examSearchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filterExamsTable(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filterExamsTable(); }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { filterExamsTable(); }
+        });
+
+        filterToolbar.add(searchIcon, BorderLayout.WEST);
+        filterToolbar.add(examSearchField, BorderLayout.CENTER);
+
+        JPanel tableArea = new JPanel(new BorderLayout(0, 8));
+        tableArea.setOpaque(false);
+        tableArea.add(filterToolbar, BorderLayout.NORTH);
+        tableArea.add(scroll, BorderLayout.CENTER);
+
         examsPanel.add(examsHeader, BorderLayout.NORTH);
-        examsPanel.add(scroll, BorderLayout.CENTER);
+        examsPanel.add(tableArea, BorderLayout.CENTER);
         examsPanel.add(examBtnRow, BorderLayout.SOUTH);
 
         // Right Panel: Instructions
@@ -338,17 +368,10 @@ public class StudentDashboardPanel extends JPanel {
         }
 
         // 1. Refresh available exams
-        examsTableModel.setRowCount(0);
+        cachedAvailableExams.clear();
         List<Exam> exams = examService.getAvailableExams();
-        for (Exam ex : exams) {
-            examsTableModel.addRow(new Object[]{
-                    ex.getExamId(),
-                    ex.getTitle(),
-                    ex.getDurationMinutes() + " mins",
-                    ex.getTotalQuestions() + " MCQs",
-                    ex.getTotalMarks() + " pts"
-            });
-        }
+        cachedAvailableExams.addAll(exams);
+        filterExamsTable();
         if (examsTable.getRowCount() > 0) {
             examsTable.setRowSelectionInterval(0, 0);
         }
@@ -371,5 +394,39 @@ public class StudentDashboardPanel extends JPanel {
                     r.getGradedAt() != null ? r.getGradedAt().toString() : "Recent"
             });
         }
+    }
+
+    /**
+     * Filters the available examinations table dynamically by keyword in title or description.
+     */
+    public void filterExamsTable() {
+        String keyword = examSearchField != null ? examSearchField.getText().trim().toLowerCase() : "";
+        examsTableModel.setRowCount(0);
+        for (Exam ex : cachedAvailableExams) {
+            boolean matches = keyword.isEmpty() ||
+                    ex.getTitle().toLowerCase().contains(keyword) ||
+                    (ex.getDescription() != null && ex.getDescription().toLowerCase().contains(keyword));
+            if (matches) {
+                examsTableModel.addRow(new Object[]{
+                        ex.getExamId(),
+                        ex.getTitle(),
+                        ex.getDurationMinutes() + " mins",
+                        ex.getTotalQuestions() + " MCQs",
+                        ex.getTotalMarks() + " pts"
+                });
+            }
+        }
+    }
+
+    public JTable getExamsTable() {
+        return examsTable;
+    }
+
+    public JTextField getExamSearchField() {
+        return examSearchField;
+    }
+
+    public List<Exam> getCachedAvailableExams() {
+        return Collections.unmodifiableList(cachedAvailableExams);
     }
 }

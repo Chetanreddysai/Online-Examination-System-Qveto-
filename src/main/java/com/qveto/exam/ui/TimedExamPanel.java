@@ -27,6 +27,7 @@ public class TimedExamPanel extends JPanel {
     private ExamAttempt currentAttempt;
     private List<Question> examQuestions = new ArrayList<>();
     private final Map<Integer, String> selectedAnswers = new HashMap<>();
+    private final Set<Integer> flaggedQuestions = new HashSet<>();
     private int currentIndex = 0;
 
     // Countdown Timer state
@@ -50,6 +51,7 @@ public class TimedExamPanel extends JPanel {
     private JButton prevBtn;
     private JButton nextBtn;
     private JButton clearBtn;
+    private JButton flagBtn;
     private JButton submitBtn;
 
     private JPanel paletteGridPanel;
@@ -110,6 +112,7 @@ public class TimedExamPanel extends JPanel {
         bodyPanel.add(createPaletteCard(), BorderLayout.EAST);
 
         add(bodyPanel, BorderLayout.CENTER);
+        setupKeyBindings();
     }
 
     private JPanel createQuestionCard() {
@@ -208,6 +211,11 @@ public class TimedExamPanel extends JPanel {
         clearBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         clearBtn.addActionListener(e -> clearSelectedAnswer());
 
+        flagBtn = new JButton("🚩 Flag for Review");
+        flagBtn.setFont(AppConstants.FONT_BODY);
+        flagBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        flagBtn.addActionListener(e -> toggleFlagCurrentQuestion());
+
         nextBtn = new JButton("Next →");
         nextBtn.setFont(AppConstants.FONT_BODY_BOLD);
         nextBtn.setForeground(Color.WHITE);
@@ -220,9 +228,19 @@ public class TimedExamPanel extends JPanel {
         leftNav.setOpaque(false);
         leftNav.add(prevBtn);
         leftNav.add(clearBtn);
+        leftNav.add(flagBtn);
 
         navPanel.add(leftNav, BorderLayout.WEST);
         navPanel.add(nextBtn, BorderLayout.EAST);
+
+        JLabel shortcutHint = new JLabel("⚡ Keyboard Shortcuts: [A-D or 1-4] Select Option | [← / →] Navigate | [F] Flag for Review | [C] Clear");
+        shortcutHint.setFont(AppConstants.FONT_SMALL);
+        shortcutHint.setForeground(AppConstants.COLOR_TEXT_MUTED);
+
+        JPanel bottomControlPanel = new JPanel(new BorderLayout(0, 6));
+        bottomControlPanel.setOpaque(false);
+        bottomControlPanel.add(navPanel, BorderLayout.CENTER);
+        bottomControlPanel.add(shortcutHint, BorderLayout.SOUTH);
 
         // Center Stack
         JPanel centerStack = new JPanel(new BorderLayout(0, 14));
@@ -232,7 +250,7 @@ public class TimedExamPanel extends JPanel {
 
         card.add(qMetaPanel, BorderLayout.NORTH);
         card.add(centerStack, BorderLayout.CENTER);
-        card.add(navPanel, BorderLayout.SOUTH);
+        card.add(bottomControlPanel, BorderLayout.SOUTH);
 
         return card;
     }
@@ -284,11 +302,12 @@ public class TimedExamPanel extends JPanel {
         scroll.getViewport().setOpaque(false);
 
         // Legend Panel
-        JPanel legendPanel = new JPanel(new GridLayout(3, 1, 0, 4));
+        JPanel legendPanel = new JPanel(new GridLayout(4, 1, 0, 4));
         legendPanel.setOpaque(false);
         legendPanel.setBorder(new EmptyBorder(8, 0, 0, 0));
 
         legendPanel.add(createLegendItem(new Color(16, 185, 129), "Answered"));
+        legendPanel.add(createLegendItem(new Color(245, 158, 11), "Flagged for Review"));
         legendPanel.add(createLegendItem(AppConstants.COLOR_PRIMARY, "Current Question"));
         legendPanel.add(createLegendItem(new Color(229, 231, 235), "Not Answered"));
 
@@ -324,6 +343,7 @@ public class TimedExamPanel extends JPanel {
     public void startAssessment(Exam exam) {
         this.currentExam = exam;
         this.selectedAnswers.clear();
+        this.flaggedQuestions.clear();
         this.currentIndex = 0;
 
         User user = SessionManager.getCurrentUser();
@@ -435,6 +455,7 @@ public class TimedExamPanel extends JPanel {
             nextBtn.setBackground(AppConstants.COLOR_PRIMARY);
         }
 
+        updateFlagButtonState();
         updatePaletteButtons();
     }
 
@@ -467,10 +488,14 @@ public class TimedExamPanel extends JPanel {
             JButton btn = paletteButtons.get(i);
 
             boolean isAnswered = selectedAnswers.containsKey(q.getQuestionId());
+            boolean isFlagged = flaggedQuestions.contains(q.getQuestionId());
             boolean isCurrent = (i == currentIndex);
 
             if (isCurrent) {
                 btn.setBackground(AppConstants.COLOR_PRIMARY);
+                btn.setForeground(Color.WHITE);
+            } else if (isFlagged) {
+                btn.setBackground(new Color(245, 158, 11)); // Amber
                 btn.setForeground(Color.WHITE);
             } else if (isAnswered) {
                 btn.setBackground(new Color(16, 185, 129)); // Green
@@ -485,17 +510,20 @@ public class TimedExamPanel extends JPanel {
     private void confirmAndSubmit(boolean isTimeout) {
         int answeredCount = selectedAnswers.size();
         int total = examQuestions.size();
+        int flaggedCount = flaggedQuestions.size();
 
         if (!isTimeout) {
-            String msg = String.format(
-                    "You have answered %d of %d questions.\n\n" +
-                    "Once submitted, answers cannot be modified.\n" +
-                    "Are you sure you want to finish and submit your exam?",
-                    answeredCount, total);
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("You have answered %d of %d questions.\n", answeredCount, total));
+            if (flaggedCount > 0) {
+                sb.append(String.format("⚠️ Note: You have %d question(s) flagged for review.\n", flaggedCount));
+            }
+            sb.append("\nOnce submitted, answers cannot be modified.\n");
+            sb.append("Are you sure you want to finish and submit your exam?");
 
             int choice = JOptionPane.showConfirmDialog(
                     this,
-                    msg,
+                    sb.toString(),
                     "Confirm Final Submission",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.QUESTION_MESSAGE
@@ -543,5 +571,146 @@ public class TimedExamPanel extends JPanel {
 
         // Transition to Result Screen
         mainFrame.showExamResult(result, currentExam, examQuestions, selectedAnswers);
+    }
+
+    /**
+     * Toggles the "Mark for Review" state of the current active question.
+     */
+    public void toggleFlagCurrentQuestion() {
+        if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
+            Question q = examQuestions.get(currentIndex);
+            if (flaggedQuestions.contains(q.getQuestionId())) {
+                flaggedQuestions.remove(q.getQuestionId());
+            } else {
+                flaggedQuestions.add(q.getQuestionId());
+            }
+            updateFlagButtonState();
+            updatePaletteButtons();
+        }
+    }
+
+    private void updateFlagButtonState() {
+        if (flagBtn == null) return;
+        if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
+            Question q = examQuestions.get(currentIndex);
+            boolean isFlagged = flaggedQuestions.contains(q.getQuestionId());
+            if (isFlagged) {
+                flagBtn.setText("★ Flagged for Review");
+                flagBtn.setBackground(new Color(254, 243, 199));
+                flagBtn.setForeground(new Color(180, 83, 9));
+            } else {
+                flagBtn.setText("🚩 Flag for Review");
+                flagBtn.setBackground(null);
+                flagBtn.setForeground(AppConstants.COLOR_TEXT_PRIMARY);
+            }
+        }
+    }
+
+    /**
+     * Selects an option (A, B, C, D) programmatically or via keyboard shortcut.
+     */
+    public void selectOption(String optionKey) {
+        if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
+            Question q = examQuestions.get(currentIndex);
+            selectedAnswers.put(q.getQuestionId(), optionKey);
+
+            if ("A".equalsIgnoreCase(optionKey)) optionARadio.setSelected(true);
+            else if ("B".equalsIgnoreCase(optionKey)) optionBRadio.setSelected(true);
+            else if ("C".equalsIgnoreCase(optionKey)) optionCRadio.setSelected(true);
+            else if ("D".equalsIgnoreCase(optionKey)) optionDRadio.setSelected(true);
+
+            if (currentAttempt != null) {
+                examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), optionKey);
+            }
+            updatePaletteButtons();
+        }
+    }
+
+    private void setupKeyBindings() {
+        InputMap im = getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = getActionMap();
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_A, 0), "keySelectA");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, 0), "keySelectA");
+        am.put("keySelectA", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (optionARadio != null && optionARadio.isEnabled()) selectOption("A");
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_B, 0), "keySelectB");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, 0), "keySelectB");
+        am.put("keySelectB", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (optionBRadio != null && optionBRadio.isEnabled()) selectOption("B");
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_C, 0), "keySelectC");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, 0), "keySelectC");
+        am.put("keySelectC", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (optionCRadio != null && optionCRadio.isEnabled()) selectOption("C");
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_D, 0), "keySelectD");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, 0), "keySelectD");
+        am.put("keySelectD", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (optionDRadio != null && optionDRadio.isEnabled()) selectOption("D");
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_LEFT, 0), "keyPrev");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_P, 0), "keyPrev");
+        am.put("keyPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (currentIndex > 0) navigateQuestion(currentIndex - 1);
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_RIGHT, 0), "keyNext");
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_N, 0), "keyNext");
+        am.put("keyNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                navigateQuestion(currentIndex + 1);
+            }
+        });
+
+        im.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F, 0), "keyFlag");
+        am.put("keyFlag", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                toggleFlagCurrentQuestion();
+            }
+        });
+    }
+
+    // Getters for programmatic verification & UI testing
+    public Set<Integer> getFlaggedQuestions() {
+        return Collections.unmodifiableSet(flaggedQuestions);
+    }
+
+    public Map<Integer, String> getSelectedAnswers() {
+        return Collections.unmodifiableMap(selectedAnswers);
+    }
+
+    public int getCurrentIndex() {
+        return currentIndex;
+    }
+
+    public int getRemainingSeconds() {
+        return remainingSeconds;
+    }
+
+    public boolean isQuestionFlagged(int questionId) {
+        return flaggedQuestions.contains(questionId);
     }
 }
