@@ -22,6 +22,7 @@ public class TestRunner {
         testClasses.add(AuthServiceTest.class);
         testClasses.add(ExamServiceTest.class);
         testClasses.add(TimedExamWorkflowTest.class);
+        testClasses.add(FrontendUITest.class);
         testClasses.add(ResultReportingTest.class);
 
         int total = 0;
