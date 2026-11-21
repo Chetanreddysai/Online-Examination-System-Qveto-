@@ -112,4 +112,53 @@ public class DAOTest {
         assertTrue(PasswordUtil.verify(rawPassword, hashed), "Hash verification must succeed");
         assertFalse(PasswordUtil.verify("WrongPass", hashed), "Hash verification must reject incorrect password");
     }
+
+    public void testAttemptStatusStateTransitions() {
+        setUp();
+        // Initial state
+        AttemptStatus inProgress = AttemptStatus.IN_PROGRESS;
+        assertFalse(inProgress.isTerminal(), "IN_PROGRESS should not be terminal");
+        assertTrue(inProgress.canTransitionTo(AttemptStatus.SUBMITTED), "IN_PROGRESS can transition to SUBMITTED");
+        assertTrue(inProgress.canTransitionTo(AttemptStatus.TIMED_OUT), "IN_PROGRESS can transition to TIMED_OUT");
+        assertTrue(inProgress.canTransitionTo(AttemptStatus.ABANDONED), "IN_PROGRESS can transition to ABANDONED");
+
+        // Terminal states must be immutable
+        AttemptStatus submitted = AttemptStatus.SUBMITTED;
+        assertTrue(submitted.isTerminal(), "SUBMITTED must be a terminal state");
+        assertFalse(submitted.canTransitionTo(AttemptStatus.IN_PROGRESS), "SUBMITTED cannot revert to IN_PROGRESS");
+        assertFalse(submitted.canTransitionTo(AttemptStatus.TIMED_OUT), "SUBMITTED cannot transition to TIMED_OUT");
+
+        AttemptStatus timedOut = AttemptStatus.TIMED_OUT;
+        assertTrue(timedOut.isTerminal(), "TIMED_OUT must be a terminal state");
+        assertFalse(timedOut.canTransitionTo(AttemptStatus.SUBMITTED), "TIMED_OUT cannot change to SUBMITTED");
+
+        AttemptStatus abandoned = AttemptStatus.ABANDONED;
+        assertTrue(abandoned.isTerminal(), "ABANDONED must be a terminal state");
+        assertFalse(abandoned.canTransitionTo(AttemptStatus.SUBMITTED), "ABANDONED cannot transition to SUBMITTED");
+    }
+
+    public void testSubmissionTypeSemantics() {
+        setUp();
+        SubmissionType manual = SubmissionType.MANUAL;
+        assertTrue(manual.isManual(), "MANUAL type should return true for isManual()");
+        assertFalse(manual.isAutoTimeout(), "MANUAL type should return false for isAutoTimeout()");
+
+        SubmissionType auto = SubmissionType.AUTO_TIMEOUT;
+        assertTrue(auto.isAutoTimeout(), "AUTO_TIMEOUT should return true for isAutoTimeout()");
+        assertFalse(auto.isManual(), "AUTO_TIMEOUT should return false for isManual()");
+
+        assertEquals(SubmissionType.MANUAL, SubmissionType.fromString("MANUAL"));
+        assertEquals(SubmissionType.AUTO_TIMEOUT, SubmissionType.fromString("AUTO_TIMEOUT"));
+        assertNull(SubmissionType.fromString("INVALID_TYPE"));
+    }
+
+    public void testAttemptDAOStateStatusSafety() {
+        setUp();
+        // Non-existent attempt query safety
+        AttemptStatus status = attemptDAO.getAttemptStatus(-9999);
+        assertNull(status, "Querying status of nonexistent attempt ID should return null");
+
+        boolean active = attemptDAO.isAttemptActive(-9999);
+        assertFalse(active, "Nonexistent attempt should not be reported as active");
+    }
 }
