@@ -143,4 +143,31 @@ public class AttemptDAO {
         }
         return answers;
     }
+
+    /**
+     * Retrieves the current lifecycle status of an attempt.
+     */
+    public AttemptStatus getAttemptStatus(int attemptId) {
+        String sql = "SELECT status FROM exam_attempts WHERE attempt_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return AttemptStatus.fromString(rs.getString("status"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAttemptStatus error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Checks if the attempt is actively in progress and permits answer changes.
+     */
+    public boolean isAttemptActive(int attemptId) {
+        AttemptStatus status = getAttemptStatus(attemptId);
+        return status == AttemptStatus.IN_PROGRESS;
+    }
 }
