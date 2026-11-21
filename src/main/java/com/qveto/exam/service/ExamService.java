@@ -252,6 +252,16 @@ public class ExamService {
     }
 
     /**
+     * Marks an in-progress exam attempt as ABANDONED when a session is closed or interrupted.
+     */
+    public boolean abandonAttempt(int attemptId) {
+        if (DBConnection.isDatabaseConnected()) {
+            return attemptDAO.completeAttempt(attemptId, null, AttemptStatus.ABANDONED, 0.0, 0.0, false);
+        }
+        return true;
+    }
+
+    /**
      * Calculates score, marks, percentage, and passed state given student's answers,
      * and finalizes the attempt record.
      */

@@ -39,7 +39,13 @@ public class MainFrame extends JFrame {
         this.authService = new AuthService();
         this.examService = new ExamService();
 
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                handleWindowClose();
+            }
+        });
         setSize(1024, 680);
         setMinimumSize(new Dimension(860, 580));
         setLocationRelativeTo(null);
@@ -105,6 +111,24 @@ public class MainFrame extends JFrame {
     }
 
     public void handleLogout() {
+        if (timedExamPanel != null && timedExamPanel.isExamActive()) {
+            int examChoice = JOptionPane.showConfirmDialog(
+                    this,
+                    "⚠️ WARNING: You are currently attending an active examination!\n" +
+                    "Logging out now will permanently ABANDON your attempt and lock your answers.\n\n" +
+                    "Are you sure you want to abandon the exam and log out?",
+                    "Active Exam In Progress",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+            if (examChoice == JOptionPane.YES_OPTION) {
+                timedExamPanel.abandonActiveSession();
+                authService.logout();
+                showCard(AppConstants.CARD_LOGIN);
+            }
+            return;
+        }
+
         int choice = JOptionPane.showConfirmDialog(
                 this,
                 "Are you sure you want to log out?",
@@ -117,5 +141,32 @@ public class MainFrame extends JFrame {
             authService.logout();
             showCard(AppConstants.CARD_LOGIN);
         }
+    }
+
+    public void handleWindowClose() {
+        if (timedExamPanel != null && timedExamPanel.isExamActive()) {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    "⚠️ WARNING: An active assessment is currently in progress!\n\n" +
+                    "Closing the window will immediately ABANDON your attempt and lock your answers.\n" +
+                    "Unfinished attempts cannot be resumed after abandonment.\n\n" +
+                    "Are you sure you want to exit and abandon this exam?",
+                    "Active Exam In Progress",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+            if (choice == JOptionPane.YES_OPTION) {
+                timedExamPanel.abandonActiveSession();
+                dispose();
+                System.exit(0);
+            }
+        } else {
+            dispose();
+            System.exit(0);
+        }
+    }
+
+    public TimedExamPanel getTimedExamPanel() {
+        return timedExamPanel;
     }
 }

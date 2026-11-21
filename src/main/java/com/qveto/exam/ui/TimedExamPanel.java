@@ -29,6 +29,7 @@ public class TimedExamPanel extends JPanel {
     private final Map<Integer, String> selectedAnswers = new HashMap<>();
     private final Set<Integer> flaggedQuestions = new HashSet<>();
     private int currentIndex = 0;
+    private boolean examActive = false;
 
     // Countdown Timer state
     private javax.swing.Timer countdownTimer;
@@ -40,6 +41,8 @@ public class TimedExamPanel extends JPanel {
     private JLabel questionIndexLabel;
     private JLabel subjectBadgeLabel;
     private JLabel marksBadgeLabel;
+    private JProgressBar examProgressBar;
+    private JLabel progressStatusLabel;
     private JTextArea questionTextArea;
 
     private JRadioButton optionARadio;
@@ -160,6 +163,31 @@ public class TimedExamPanel extends JPanel {
         qMetaPanel.add(questionIndexLabel, BorderLayout.WEST);
         qMetaPanel.add(badges, BorderLayout.EAST);
 
+        // Progress Tracking Bar
+        JPanel progressPanel = new JPanel(new BorderLayout(10, 0));
+        progressPanel.setOpaque(false);
+        progressPanel.setBorder(new EmptyBorder(6, 0, 0, 0));
+
+        progressStatusLabel = new JLabel("Answered: 0 of 0 (0%)");
+        progressStatusLabel.setFont(AppConstants.FONT_SMALL);
+        progressStatusLabel.setForeground(AppConstants.COLOR_TEXT_MUTED);
+
+        examProgressBar = new JProgressBar(0, 100);
+        examProgressBar.setValue(0);
+        examProgressBar.setStringPainted(true);
+        examProgressBar.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        examProgressBar.setForeground(AppConstants.COLOR_SUCCESS);
+        examProgressBar.setBackground(new Color(241, 245, 249));
+        examProgressBar.setPreferredSize(new Dimension(180, 18));
+
+        progressPanel.add(progressStatusLabel, BorderLayout.WEST);
+        progressPanel.add(examProgressBar, BorderLayout.EAST);
+
+        JPanel topHeaderContainer = new JPanel(new BorderLayout(0, 6));
+        topHeaderContainer.setOpaque(false);
+        topHeaderContainer.add(qMetaPanel, BorderLayout.NORTH);
+        topHeaderContainer.add(progressPanel, BorderLayout.SOUTH);
+
         // Question Statement Area
         questionTextArea = new JTextArea();
         questionTextArea.setFont(new Font("Segoe UI", Font.PLAIN, 15));
@@ -248,7 +276,7 @@ public class TimedExamPanel extends JPanel {
         centerStack.add(qScroll, BorderLayout.NORTH);
         centerStack.add(optionsPanel, BorderLayout.CENTER);
 
-        card.add(qMetaPanel, BorderLayout.NORTH);
+        card.add(topHeaderContainer, BorderLayout.NORTH);
         card.add(centerStack, BorderLayout.CENTER);
         card.add(bottomControlPanel, BorderLayout.SOUTH);
 
@@ -345,6 +373,7 @@ public class TimedExamPanel extends JPanel {
         this.selectedAnswers.clear();
         this.flaggedQuestions.clear();
         this.currentIndex = 0;
+        this.examActive = true;
 
         User user = SessionManager.getCurrentUser();
         int userId = user != null ? user.getUserId() : 1;
@@ -457,6 +486,7 @@ public class TimedExamPanel extends JPanel {
 
         updateFlagButtonState();
         updatePaletteButtons();
+        updateProgressDisplay();
     }
 
     private void navigateQuestion(int targetIndex) {
@@ -479,6 +509,7 @@ public class TimedExamPanel extends JPanel {
                 examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), null);
             }
             updatePaletteButtons();
+            updateProgressDisplay();
         }
     }
 
@@ -569,6 +600,8 @@ public class TimedExamPanel extends JPanel {
                 attemptId, userId, currentExam, examQuestions, selectedAnswers, submissionType
         );
 
+        this.examActive = false;
+
         // Transition to Result Screen
         mainFrame.showExamResult(result, currentExam, examQuestions, selectedAnswers);
     }
@@ -586,6 +619,7 @@ public class TimedExamPanel extends JPanel {
             }
             updateFlagButtonState();
             updatePaletteButtons();
+            updateProgressDisplay();
         }
     }
 
@@ -623,6 +657,7 @@ public class TimedExamPanel extends JPanel {
                 examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), optionKey);
             }
             updatePaletteButtons();
+            updateProgressDisplay();
         }
     }
 
@@ -712,5 +747,46 @@ public class TimedExamPanel extends JPanel {
 
     public boolean isQuestionFlagged(int questionId) {
         return flaggedQuestions.contains(questionId);
+    }
+
+    /**
+     * Updates the completion progress bar and status text.
+     */
+    public void updateProgressDisplay() {
+        if (examProgressBar == null || examQuestions == null || examQuestions.isEmpty()) return;
+        int total = examQuestions.size();
+        int answered = selectedAnswers.size();
+        int flagged = flaggedQuestions.size();
+        int percent = (int) Math.round(((double) answered / total) * 100);
+
+        examProgressBar.setValue(percent);
+        examProgressBar.setString(percent + "%");
+        String statusText = String.format("Answered: %d of %d (%d%%)", answered, total, percent);
+        if (flagged > 0) {
+            statusText += String.format(" | ⭐ Flagged: %d", flagged);
+        }
+        progressStatusLabel.setText(statusText);
+    }
+
+    /**
+     * Abandons the active exam attempt when window closing or interruption is confirmed.
+     */
+    public void abandonActiveSession() {
+        if (!examActive) return;
+        examActive = false;
+        if (countdownTimer != null) {
+            countdownTimer.stop();
+        }
+        if (currentAttempt != null) {
+            examService.abandonAttempt(currentAttempt.getAttemptId());
+        }
+    }
+
+    public boolean isExamActive() {
+        return examActive;
+    }
+
+    public JProgressBar getExamProgressBar() {
+        return examProgressBar;
     }
 }
