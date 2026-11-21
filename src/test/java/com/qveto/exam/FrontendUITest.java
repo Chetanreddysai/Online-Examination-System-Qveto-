@@ -128,4 +128,40 @@ public class FrontendUITest {
 
         frame.dispose();
     }
+
+    public void testProgressBarUpdates() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        Assert.assertNotNull(panel.getExamProgressBar(), "Progress bar should be instantiated");
+        Assert.assertEquals(0, panel.getExamProgressBar().getValue(), "Progress bar should start at 0%");
+
+        // Answer question 1 (1 out of 5 = 20%)
+        panel.selectOption("A");
+        Assert.assertEquals(20, panel.getExamProgressBar().getValue(), "1 answered out of 5 should equal 20%");
+
+        frame.dispose();
+    }
+
+    public void testExamActiveStateAndAbandonment() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Assert.assertFalse(panel.isExamActive(), "Exam should not be active before start");
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+        Assert.assertTrue(panel.isExamActive(), "Exam should be marked active once started");
+
+        // Abandon session
+        panel.abandonActiveSession();
+        Assert.assertFalse(panel.isExamActive(), "Exam should no longer be active after abandonment");
+
+        frame.dispose();
+    }
 }
