@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS exam_questions (
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
--- 5. Exam Attempts Table: Student Exam Sessions
+-- 5. Exam Attempts Table: Student Exam Sessions & Lifecycle
+-- State Machine: IN_PROGRESS -> SUBMITTED | TIMED_OUT | ABANDONED
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS exam_attempts (
     attempt_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -85,7 +86,9 @@ CREATE TABLE IF NOT EXISTS exam_attempts (
     percentage DECIMAL(5,2) DEFAULT NULL,
     passed BOOLEAN DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (exam_id) REFERENCES exams(exam_id) ON DELETE CASCADE
+    FOREIGN KEY (exam_id) REFERENCES exams(exam_id) ON DELETE CASCADE,
+    CHECK (status IN ('IN_PROGRESS', 'SUBMITTED', 'TIMED_OUT', 'ABANDONED')),
+    CHECK (submission_type IS NULL OR submission_type IN ('MANUAL', 'AUTO_TIMEOUT'))
 ) ENGINE=InnoDB;
 
 -- --------------------------------------------------------
