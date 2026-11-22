@@ -164,4 +164,37 @@ public class FrontendUITest {
 
         frame.dispose();
     }
+
+    public void testCountdownTimerWarningThresholds() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        // 1. Initial Normal State (900s > 300s)
+        Assert.assertEquals(900, panel.getRemainingSeconds(), "Initial duration should be 900 seconds");
+        Assert.assertEquals(new java.awt.Color(30, 58, 138), panel.getTimerBadgeLabel().getBackground(), "Normal timer background should be navy");
+        Assert.assertFalse(panel.isWarned5Min(), "5-min warning should not be flagged initially");
+
+        // 2. Warning State (<= 300s)
+        panel.setRemainingSeconds(250);
+        Assert.assertEquals(AppConstants.COLOR_WARNING, panel.getTimerBadgeLabel().getBackground(), "Timer background at 250s should be amber warning");
+        Assert.assertTrue(panel.isWarned5Min(), "5-min warning flag should be true");
+
+        // 3. Urgent State (<= 60s)
+        panel.setRemainingSeconds(55);
+        Assert.assertEquals(AppConstants.COLOR_DANGER, panel.getTimerBadgeLabel().getBackground(), "Timer background at 55s should be red alert");
+        Assert.assertTrue(panel.isWarned1Min(), "1-min warning flag should be true");
+
+        // 4. Critical Pulse State (<= 30s)
+        panel.setRemainingSeconds(28);
+        Assert.assertEquals(AppConstants.COLOR_DANGER, panel.getTimerBadgeLabel().getBackground(), "Even second <= 30s should be danger red");
+        panel.setRemainingSeconds(27);
+        Assert.assertEquals(new java.awt.Color(153, 27, 27), panel.getTimerBadgeLabel().getBackground(), "Odd second <= 30s should be dark crimson pulse");
+
+        panel.abandonActiveSession();
+        frame.dispose();
+    }
 }
