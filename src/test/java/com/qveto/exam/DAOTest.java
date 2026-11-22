@@ -160,5 +160,15 @@ public class DAOTest {
 
         boolean active = attemptDAO.isAttemptActive(-9999);
         assertFalse(active, "Nonexistent attempt should not be reported as active");
+
+        // getAttemptById and getAttempt non-existent lookup safety
+        ExamAttempt attempt = attemptDAO.getAttemptById(-9999);
+        assertNull(attempt, "Querying attempt by negative ID should return null without error");
+
+        ExamAttempt aliasAttempt = attemptDAO.getAttempt(-9999);
+        assertNull(aliasAttempt, "getAttempt alias should return null for invalid attempt ID");
+
+        ExamAttempt activeAttempt = attemptDAO.getActiveAttempt(-9999, -9999);
+        assertNull(activeAttempt, "Nonexistent user/exam should have no active attempt");
     }
 }

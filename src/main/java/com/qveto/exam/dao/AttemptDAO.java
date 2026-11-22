@@ -98,28 +98,86 @@ public class AttemptDAO {
             stmt.setInt(1, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    ExamAttempt a = new ExamAttempt();
-                    a.setAttemptId(rs.getInt("attempt_id"));
-                    a.setUserId(rs.getInt("user_id"));
-                    a.setExamId(rs.getInt("exam_id"));
-                    a.setStartTime(rs.getTimestamp("start_time"));
-                    a.setEndTime(rs.getTimestamp("end_time"));
-                    a.setSubmissionType(SubmissionType.fromString(rs.getString("submission_type")));
-                    a.setStatus(AttemptStatus.fromString(rs.getString("status")));
-                    double sc = rs.getDouble("score");
-                    if (!rs.wasNull()) a.setScore(sc);
-                    double pct = rs.getDouble("percentage");
-                    if (!rs.wasNull()) a.setPercentage(pct);
-                    boolean pass = rs.getBoolean("passed");
-                    if (!rs.wasNull()) a.setPassed(pass);
-
-                    attempts.add(a);
+                    attempts.add(mapResultSetToAttempt(rs));
                 }
             }
         } catch (SQLException e) {
             System.err.println("[AttemptDAO] getAttemptsByUser error: " + e.getMessage());
         }
         return attempts;
+    }
+
+    /**
+     * Retrieves an attempt session by its unique attempt ID.
+     */
+    public ExamAttempt getAttemptById(int attemptId) {
+        String sql = "SELECT attempt_id, user_id, exam_id, start_time, end_time, submission_type, " +
+                     "status, score, percentage, passed " +
+                     "FROM exam_attempts WHERE attempt_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return mapResultSetToAttempt(rs);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAttemptById error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Alias for getAttemptById to support getAttempt(attemptId).
+     */
+    public ExamAttempt getAttempt(int attemptId) {
+        return getAttemptById(attemptId);
+    }
+
+    /**
+     * Retrieves the active in-progress attempt for a user and exam, if one exists.
+     */
+    public ExamAttempt getActiveAttempt(int userId, int examId) {
+        String sql = "SELECT attempt_id, user_id, exam_id, start_time, end_time, submission_type, " +
+                     "status, score, percentage, passed " +
+                     "FROM exam_attempts WHERE user_id = ? AND exam_id = ? AND status = 'IN_PROGRESS' " +
+                     "ORDER BY start_time DESC LIMIT 1";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, userId);
+            stmt.setInt(2, examId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return mapResultSetToAttempt(rs);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getActiveAttempt error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    private ExamAttempt mapResultSetToAttempt(ResultSet rs) throws SQLException {
+        ExamAttempt a = new ExamAttempt();
+        a.setAttemptId(rs.getInt("attempt_id"));
+        a.setUserId(rs.getInt("user_id"));
+        a.setExamId(rs.getInt("exam_id"));
+        a.setStartTime(rs.getTimestamp("start_time"));
+        a.setEndTime(rs.getTimestamp("end_time"));
+        a.setSubmissionType(SubmissionType.fromString(rs.getString("submission_type")));
+        a.setStatus(AttemptStatus.fromString(rs.getString("status")));
+        double sc = rs.getDouble("score");
+        if (!rs.wasNull()) a.setScore(sc);
+        double pct = rs.getDouble("percentage");
+        if (!rs.wasNull()) a.setPercentage(pct);
+        boolean pass = rs.getBoolean("passed");
+        if (!rs.wasNull()) a.setPassed(pass);
+        return a;
     }
 
     /**
