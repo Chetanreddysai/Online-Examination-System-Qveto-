@@ -34,6 +34,9 @@ public class TimedExamPanel extends JPanel {
     // Countdown Timer state
     private javax.swing.Timer countdownTimer;
     private int remainingSeconds;
+    private int totalDurationSeconds;
+    private boolean warned5Min = false;
+    private boolean warned1Min = false;
 
     // UI Components
     private JLabel examTitleLabel;
@@ -411,7 +414,10 @@ public class TimedExamPanel extends JPanel {
         paletteGridPanel.repaint();
 
         // Initialize countdown timer (duration in minutes)
-        remainingSeconds = exam.getDurationMinutes() * 60;
+        totalDurationSeconds = exam.getDurationMinutes() * 60;
+        remainingSeconds = totalDurationSeconds;
+        warned5Min = false;
+        warned1Min = false;
         updateTimerDisplay();
 
         if (countdownTimer != null && countdownTimer.isRunning()) {
@@ -433,19 +439,32 @@ public class TimedExamPanel extends JPanel {
         displayCurrentQuestion();
     }
 
-    private void updateTimerDisplay() {
+    public void updateTimerDisplay() {
         int minutes = remainingSeconds / 60;
         int seconds = remainingSeconds % 60;
         String timeStr = String.format("⏱️ %02d:%02d", minutes, seconds);
         timerBadgeLabel.setText(timeStr);
 
-        // Warning color transitions
-        if (remainingSeconds <= 60) {
-            timerBadgeLabel.setBackground(AppConstants.COLOR_DANGER); // Red (< 1 min)
+        // Warning color transitions and visual pulse alerts
+        if (remainingSeconds <= 30) {
+            // Pulse alert in critical last 30 seconds
+            if (remainingSeconds % 2 == 0) {
+                timerBadgeLabel.setBackground(AppConstants.COLOR_DANGER);
+            } else {
+                timerBadgeLabel.setBackground(new Color(153, 27, 27)); // Deep crimson pulse
+            }
+            timerBadgeLabel.setToolTipText("🚨 CRITICAL: Under 30 seconds remaining! System will auto-submit at 00:00.");
+        } else if (remainingSeconds <= 60) {
+            timerBadgeLabel.setBackground(AppConstants.COLOR_DANGER); // Solid Red (< 1 min)
+            warned1Min = true;
+            timerBadgeLabel.setToolTipText("🚨 WARNING: 1 minute remaining before automatic submission.");
         } else if (remainingSeconds <= 300) {
             timerBadgeLabel.setBackground(AppConstants.COLOR_WARNING); // Amber (< 5 min)
+            warned5Min = true;
+            timerBadgeLabel.setToolTipText("⚠️ Notice: 5 minutes remaining. Please review your answers.");
         } else {
             timerBadgeLabel.setBackground(new Color(30, 58, 138));
+            timerBadgeLabel.setToolTipText("Assessment timer active. Standard pace.");
         }
     }
 
@@ -788,5 +807,26 @@ public class TimedExamPanel extends JPanel {
 
     public JProgressBar getExamProgressBar() {
         return examProgressBar;
+    }
+
+    public void setRemainingSeconds(int seconds) {
+        this.remainingSeconds = seconds;
+        updateTimerDisplay();
+    }
+
+    public boolean isWarned5Min() {
+        return warned5Min;
+    }
+
+    public boolean isWarned1Min() {
+        return warned1Min;
+    }
+
+    public javax.swing.Timer getCountdownTimer() {
+        return countdownTimer;
+    }
+
+    public JLabel getTimerBadgeLabel() {
+        return timerBadgeLabel;
     }
 }
