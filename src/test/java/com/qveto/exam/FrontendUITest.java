@@ -197,4 +197,80 @@ public class FrontendUITest {
         panel.abandonActiveSession();
         frame.dispose();
     }
+
+    public void testQuestionPaletteNavigationAndFilters() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        // 1. Initial palette state check
+        Assert.assertEquals(0, panel.getAnsweredCount(), "Initially 0 questions should be answered");
+        Assert.assertEquals(0, panel.getFlaggedCount(), "Initially 0 questions should be flagged");
+        Assert.assertEquals(5, panel.getUnansweredCount(), "Initially 5 questions should be unanswered");
+        Assert.assertNotNull(panel.getPaletteSummaryLabel(), "Palette summary label should not be null");
+        Assert.assertTrue(panel.getPaletteSummaryLabel().getText().contains("0/5 Ans"), "Summary should state 0/5 Ans");
+        Assert.assertEquals(5, panel.getPaletteButtons().size(), "There should be 5 palette buttons");
+        Assert.assertEquals("1", panel.getPaletteButtons().get(0).getText(), "First button should start with label 1");
+
+        // 2. Answer Q1 (Index 0)
+        panel.selectOption("B");
+        Assert.assertEquals(1, panel.getAnsweredCount(), "Answered count should now be 1");
+        Assert.assertEquals(4, panel.getUnansweredCount(), "Unanswered count should now be 4");
+        Assert.assertEquals("✓1", panel.getPaletteButtons().get(0).getText(), "Answered button 1 should have checkmark prefix");
+        Assert.assertTrue(panel.getPaletteButtons().get(0).getToolTipText().contains("Answered (Option B)"), "Tooltip should indicate Answered Option B");
+
+        // 3. Navigate to Q2 (Index 1) and Flag it
+        panel.navigateQuestion(1);
+        panel.toggleFlagCurrentQuestion();
+        Assert.assertEquals(1, panel.getFlaggedCount(), "Flagged count should now be 1");
+        Assert.assertEquals("⚑2", panel.getPaletteButtons().get(1).getText(), "Flagged unanswered button 2 should have flag symbol");
+        Assert.assertTrue(panel.getPaletteButtons().get(1).getToolTipText().contains("[FLAGGED FOR REVIEW]"), "Tooltip should note flagged for review");
+
+        // 4. Navigate to Q3 (Index 2), Answer & Flag it
+        panel.navigateQuestion(2);
+        panel.selectOption("C");
+        panel.toggleFlagCurrentQuestion();
+        Assert.assertEquals(2, panel.getAnsweredCount(), "Answered count should be 2");
+        Assert.assertEquals(2, panel.getFlaggedCount(), "Flagged count should be 2");
+        Assert.assertEquals("★3", panel.getPaletteButtons().get(2).getText(), "Answered and flagged button 3 should display star icon");
+
+        // 5. Test Quick-Jump algorithms
+        // Currently at index 2. Next unanswered should be index 3 (Q4).
+        Assert.assertEquals(3, panel.findNextUnansweredIndex(), "Next unanswered after Q3 should be Q4 (index 3)");
+        panel.jumpToNextUnanswered();
+        Assert.assertEquals(3, panel.getCurrentIndex(), "Should have navigated to index 3");
+
+        // Answer Q4 and Q5
+        panel.selectOption("D");
+        panel.navigateQuestion(4);
+        panel.selectOption("A");
+
+        // Current answers: Q1, Q3, Q4, Q5. Unanswered is only Q2 (index 1).
+        // Since we are at index 4, jumping to next unanswered should wrap around to index 1.
+        Assert.assertEquals(1, panel.findNextUnansweredIndex(), "Next unanswered should wrap to index 1 (Q2)");
+        panel.jumpToNextUnanswered();
+        Assert.assertEquals(1, panel.getCurrentIndex(), "Should have wrapped around to index 1");
+
+        // Answer Q2
+        panel.selectOption("A");
+        Assert.assertEquals(5, panel.getAnsweredCount(), "All 5 questions should now be answered");
+        Assert.assertEquals(-1, panel.findNextUnansweredIndex(), "When all answered, findNextUnansweredIndex should return -1");
+
+        // Test Next Flagged jump: flagged questions are Q2 (index 1) and Q3 (index 2).
+        // From index 1, next flagged is index 2.
+        Assert.assertEquals(2, panel.findNextFlaggedIndex(), "Next flagged from index 1 should be index 2");
+        panel.jumpToNextFlagged();
+        Assert.assertEquals(2, panel.getCurrentIndex(), "Jumped to index 2");
+
+        // From index 2, next flagged should wrap around to index 1.
+        Assert.assertEquals(1, panel.findNextFlaggedIndex(), "Next flagged from index 2 should wrap around to index 1");
+        panel.jumpToNextFlagged();
+        Assert.assertEquals(1, panel.getCurrentIndex(), "Jumped back to index 1");
+
+        panel.abandonActiveSession();
+        frame.dispose();
+    }
 }
