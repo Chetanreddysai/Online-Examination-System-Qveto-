@@ -62,6 +62,9 @@ public class TimedExamPanel extends JPanel {
 
     private JPanel paletteGridPanel;
     private final List<JButton> paletteButtons = new ArrayList<>();
+    private JLabel paletteSummaryLabel;
+    private JButton jumpUnansweredBtn;
+    private JButton jumpFlaggedBtn;
 
     public TimedExamPanel(MainFrame mainFrame, ExamService examService) {
         this.mainFrame = mainFrame;
@@ -313,17 +316,27 @@ public class TimedExamPanel extends JPanel {
     }
 
     private JPanel createPaletteCard() {
-        JPanel palette = new JPanel(new BorderLayout(0, 12));
+        JPanel palette = new JPanel(new BorderLayout(0, 10));
         palette.setBackground(Color.WHITE);
         palette.setBorder(BorderFactory.createCompoundBorder(
                 new LineBorder(AppConstants.COLOR_BORDER, 1, true),
                 new EmptyBorder(16, 16, 16, 16)
         ));
-        palette.setPreferredSize(new Dimension(240, 400));
+        palette.setPreferredSize(new Dimension(240, 420));
+
+        JPanel palHeaderPanel = new JPanel(new BorderLayout(0, 4));
+        palHeaderPanel.setOpaque(false);
 
         JLabel palHeader = new JLabel("Question Navigator");
         palHeader.setFont(AppConstants.FONT_SUBHEADER);
         palHeader.setForeground(AppConstants.COLOR_TEXT_PRIMARY);
+
+        paletteSummaryLabel = new JLabel("0/0 Ans | 0 Flagged | 0 Left");
+        paletteSummaryLabel.setFont(AppConstants.FONT_SMALL);
+        paletteSummaryLabel.setForeground(AppConstants.COLOR_TEXT_MUTED);
+
+        palHeaderPanel.add(palHeader, BorderLayout.NORTH);
+        palHeaderPanel.add(paletteSummaryLabel, BorderLayout.SOUTH);
 
         paletteGridPanel = new JPanel(new GridLayout(0, 4, 6, 6));
         paletteGridPanel.setOpaque(false);
@@ -332,19 +345,44 @@ public class TimedExamPanel extends JPanel {
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
 
+        // Quick Jump Action Buttons
+        JPanel jumpBtnRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        jumpBtnRow.setOpaque(false);
+        jumpBtnRow.setBorder(new EmptyBorder(6, 0, 6, 0));
+
+        jumpUnansweredBtn = new JButton("Next Unanswered");
+        jumpUnansweredBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        jumpUnansweredBtn.setFocusPainted(false);
+        jumpUnansweredBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        jumpUnansweredBtn.addActionListener(e -> jumpToNextUnanswered());
+
+        jumpFlaggedBtn = new JButton("Next Flagged");
+        jumpFlaggedBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        jumpFlaggedBtn.setFocusPainted(false);
+        jumpFlaggedBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        jumpFlaggedBtn.addActionListener(e -> jumpToNextFlagged());
+
+        jumpBtnRow.add(jumpUnansweredBtn);
+        jumpBtnRow.add(jumpFlaggedBtn);
+
         // Legend Panel
         JPanel legendPanel = new JPanel(new GridLayout(4, 1, 0, 4));
         legendPanel.setOpaque(false);
-        legendPanel.setBorder(new EmptyBorder(8, 0, 0, 0));
+        legendPanel.setBorder(new EmptyBorder(6, 0, 0, 0));
 
         legendPanel.add(createLegendItem(new Color(16, 185, 129), "Answered"));
         legendPanel.add(createLegendItem(new Color(245, 158, 11), "Flagged for Review"));
         legendPanel.add(createLegendItem(AppConstants.COLOR_PRIMARY, "Current Question"));
         legendPanel.add(createLegendItem(new Color(229, 231, 235), "Not Answered"));
 
-        palette.add(palHeader, BorderLayout.NORTH);
+        JPanel bottomPalette = new JPanel(new BorderLayout());
+        bottomPalette.setOpaque(false);
+        bottomPalette.add(jumpBtnRow, BorderLayout.NORTH);
+        bottomPalette.add(legendPanel, BorderLayout.SOUTH);
+
+        palette.add(palHeaderPanel, BorderLayout.NORTH);
         palette.add(scroll, BorderLayout.CENTER);
-        palette.add(legendPanel, BorderLayout.SOUTH);
+        palette.add(bottomPalette, BorderLayout.SOUTH);
 
         return palette;
     }
@@ -508,7 +546,7 @@ public class TimedExamPanel extends JPanel {
         updateProgressDisplay();
     }
 
-    private void navigateQuestion(int targetIndex) {
+    public void navigateQuestion(int targetIndex) {
         if (targetIndex >= examQuestions.size()) {
             confirmAndSubmit(false);
             return;
@@ -533,6 +571,10 @@ public class TimedExamPanel extends JPanel {
     }
 
     private void updatePaletteButtons() {
+        int answeredCount = 0;
+        int flaggedCount = 0;
+        int unansweredCount = 0;
+
         for (int i = 0; i < examQuestions.size(); i++) {
             Question q = examQuestions.get(i);
             JButton btn = paletteButtons.get(i);
@@ -540,6 +582,30 @@ public class TimedExamPanel extends JPanel {
             boolean isAnswered = selectedAnswers.containsKey(q.getQuestionId());
             boolean isFlagged = flaggedQuestions.contains(q.getQuestionId());
             boolean isCurrent = (i == currentIndex);
+
+            if (isAnswered) answeredCount++;
+            else unansweredCount++;
+            if (isFlagged) flaggedCount++;
+
+            // Button label decoration for immediate glance accessibility
+            String btnText = String.valueOf(i + 1);
+            if (isFlagged && isAnswered) {
+                btnText = "★" + (i + 1);
+            } else if (isFlagged) {
+                btnText = "⚑" + (i + 1);
+            } else if (isAnswered) {
+                btnText = "✓" + (i + 1);
+            }
+            btn.setText(btnText);
+
+            // Tooltip with detailed question status
+            StringBuilder tip = new StringBuilder();
+            tip.append("Q#").append(i + 1).append(" (").append(q.getSubject()).append(" - ").append(String.format("%.1f", q.getMarks())).append(" pts): ");
+            if (isCurrent) tip.append("[CURRENT] ");
+            if (isAnswered) tip.append("Answered (Option ").append(selectedAnswers.get(q.getQuestionId())).append(")");
+            else tip.append("Not Answered");
+            if (isFlagged) tip.append(" [FLAGGED FOR REVIEW]");
+            btn.setToolTipText(tip.toString());
 
             if (isCurrent) {
                 btn.setBackground(AppConstants.COLOR_PRIMARY);
@@ -554,6 +620,11 @@ public class TimedExamPanel extends JPanel {
                 btn.setBackground(new Color(243, 244, 246));
                 btn.setForeground(AppConstants.COLOR_TEXT_PRIMARY);
             }
+        }
+
+        if (paletteSummaryLabel != null) {
+            paletteSummaryLabel.setText(String.format("%d/%d Ans | %d Flagged | %d Left",
+                    answeredCount, examQuestions.size(), flaggedCount, unansweredCount));
         }
     }
 
@@ -828,5 +899,97 @@ public class TimedExamPanel extends JPanel {
 
     public JLabel getTimerBadgeLabel() {
         return timerBadgeLabel;
+    }
+
+    /**
+     * Finds the index of the next unanswered question starting after the current index,
+     * wrapping around if needed. Returns -1 if all questions are answered or list is empty.
+     */
+    public int findNextUnansweredIndex() {
+        if (examQuestions.isEmpty()) return -1;
+        int size = examQuestions.size();
+        for (int offset = 1; offset <= size; offset++) {
+            int idx = (currentIndex + offset) % size;
+            Question q = examQuestions.get(idx);
+            if (!selectedAnswers.containsKey(q.getQuestionId())) {
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Finds the index of the next flagged question starting after the current index,
+     * wrapping around if needed. Returns -1 if no questions are flagged or list is empty.
+     */
+    public int findNextFlaggedIndex() {
+        if (examQuestions.isEmpty()) return -1;
+        int size = examQuestions.size();
+        for (int offset = 1; offset <= size; offset++) {
+            int idx = (currentIndex + offset) % size;
+            Question q = examQuestions.get(idx);
+            if (flaggedQuestions.contains(q.getQuestionId())) {
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Jumps to the next unanswered question in the palette sequence.
+     */
+    public void jumpToNextUnanswered() {
+        int next = findNextUnansweredIndex();
+        if (next >= 0) {
+            navigateQuestion(next);
+        } else {
+            JOptionPane.showMessageDialog(this,
+                    "All questions have been answered!",
+                    "Navigator Info",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    /**
+     * Jumps to the next flagged question in the palette sequence.
+     */
+    public void jumpToNextFlagged() {
+        int next = findNextFlaggedIndex();
+        if (next >= 0) {
+            navigateQuestion(next);
+        } else {
+            JOptionPane.showMessageDialog(this,
+                    "No questions are currently flagged for review.",
+                    "Navigator Info",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    public int getAnsweredCount() {
+        return selectedAnswers.size();
+    }
+
+    public int getFlaggedCount() {
+        return flaggedQuestions.size();
+    }
+
+    public int getUnansweredCount() {
+        return Math.max(0, examQuestions.size() - selectedAnswers.size());
+    }
+
+    public List<JButton> getPaletteButtons() {
+        return Collections.unmodifiableList(paletteButtons);
+    }
+
+    public JLabel getPaletteSummaryLabel() {
+        return paletteSummaryLabel;
+    }
+
+    public JButton getJumpUnansweredBtn() {
+        return jumpUnansweredBtn;
+    }
+
+    public JButton getJumpFlaggedBtn() {
+        return jumpFlaggedBtn;
     }
 }
