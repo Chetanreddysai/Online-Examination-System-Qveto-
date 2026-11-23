@@ -171,4 +171,20 @@ public class DAOTest {
         ExamAttempt activeAttempt = attemptDAO.getActiveAttempt(-9999, -9999);
         assertNull(activeAttempt, "Nonexistent user/exam should have no active attempt");
     }
+
+    public void testDynamicAnswerUpsertAndNavigationPersistence() {
+        setUp();
+        // Dynamic upsert safety on non-existent attempts
+        boolean upserted = attemptDAO.upsertAnswer(-9999, -9999, "B");
+        assertFalse(upserted, "Upserting answer for nonexistent attempt should return false safely");
+
+        boolean cleared = attemptDAO.clearAnswer(-9999, -9999);
+        assertFalse(cleared, "Clearing answer for nonexistent attempt should return false safely");
+
+        String selected = attemptDAO.getSelectedAnswer(-9999, -9999);
+        assertNull(selected, "Selected option for nonexistent attempt should be null");
+
+        int answeredCount = attemptDAO.getAnsweredCount(-9999);
+        assertEquals(0, answeredCount, "Answered count for nonexistent attempt should be 0");
+    }
 }

@@ -45,23 +45,90 @@ public class AttemptDAO {
         return null;
     }
 
+    /**
+     * Persists or updates candidate's answer for a question in real-time.
+     * Uses ON DUPLICATE KEY UPDATE to guarantee zero data loss during navigation.
+     */
     public boolean saveAnswer(int attemptId, int questionId, String selectedOption) {
-        String sql = "INSERT INTO attempt_answers (attempt_id, question_id, selected_option) " +
-                     "VALUES (?, ?, ?) " +
-                     "ON DUPLICATE KEY UPDATE selected_option = VALUES(selected_option)";
+        return upsertAnswer(attemptId, questionId, selectedOption);
+    }
+
+    /**
+     * Dynamic upsert query for live answer persistence during question navigation.
+     * Records selection or un-selection while updating timestamp.
+     */
+    public boolean upsertAnswer(int attemptId, int questionId, String selectedOption) {
+        // Enforce state immutability: do not allow writes if attempt is already completed/timed out
+        AttemptStatus currentStatus = getAttemptStatus(attemptId);
+        if (currentStatus != null && currentStatus.isTerminal()) {
+            System.err.println("[AttemptDAO] Rejecting answer modification for finalized attempt: " + attemptId);
+            return false;
+        }
+
+        String sql = "INSERT INTO attempt_answers (attempt_id, question_id, selected_option, answered_at) " +
+                     "VALUES (?, ?, ?, CURRENT_TIMESTAMP) " +
+                     "ON DUPLICATE KEY UPDATE selected_option = VALUES(selected_option), answered_at = CURRENT_TIMESTAMP";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setInt(1, attemptId);
             stmt.setInt(2, questionId);
-            stmt.setString(3, selectedOption);
+            stmt.setString(3, selectedOption != null && !selectedOption.trim().isEmpty() ? selectedOption.trim() : null);
 
             return stmt.executeUpdate() > 0;
         } catch (SQLException e) {
-            System.err.println("[AttemptDAO] saveAnswer error: " + e.getMessage());
+            System.err.println("[AttemptDAO] upsertAnswer error: " + e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * Clears candidate's selected option for a specific question (e.g. candidate clicks 'Clear Answer').
+     */
+    public boolean clearAnswer(int attemptId, int questionId) {
+        return upsertAnswer(attemptId, questionId, null);
+    }
+
+    /**
+     * Retrieves the candidate's selected choice for a specific question in an attempt.
+     */
+    public String getSelectedAnswer(int attemptId, int questionId) {
+        String sql = "SELECT selected_option FROM attempt_answers WHERE attempt_id = ? AND question_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            stmt.setInt(2, questionId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("selected_option");
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getSelectedAnswer error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Counts the total number of questions answered with non-null selections in an attempt.
+     */
+    public int getAnsweredCount(int attemptId) {
+        String sql = "SELECT COUNT(*) FROM attempt_answers WHERE attempt_id = ? AND selected_option IS NOT NULL";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAnsweredCount error: " + e.getMessage());
+        }
+        return 0;
     }
 
     public boolean completeAttempt(int attemptId, SubmissionType submissionType, AttemptStatus status,
