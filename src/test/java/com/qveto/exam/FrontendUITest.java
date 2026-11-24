@@ -273,4 +273,95 @@ public class FrontendUITest {
         panel.abandonActiveSession();
         frame.dispose();
     }
+
+    public void testContinuousAnswerPersistenceAcrossNavigation() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        int attemptId = panel.getCurrentAttempt().getAttemptId();
+
+        // Initially on Q1 (index 0). No option selected yet.
+        Assert.assertNotNull(panel.getAutosaveBadgeLabel(), "Autosave badge label should exist");
+        Assert.assertTrue(panel.getAutosaveBadgeLabel().getText().contains("Cleared")
+                || panel.getAutosaveBadgeLabel().getText().contains("Not Answered"),
+                "Initial autosave badge should indicate no answer");
+
+        // 1. Select Option "B" on Q1 (Question ID 1)
+        panel.selectOption("B");
+        Assert.assertEquals("B", panel.getSelectedAnswers().get(1), "Selected answer for Q1 should be B");
+        Assert.assertEquals("● Saved", panel.getAutosaveBadgeLabel().getText(), "Autosave badge should say Saved");
+        Assert.assertEquals("B", examService.getAnswersForAttempt(attemptId).get(1), "Persistence store should reflect answer B");
+
+        // 2. Navigate forward to Q2 (index 1)
+        panel.navigateQuestion(1);
+        Assert.assertEquals(1, panel.getCurrentIndex(), "Should now be on index 1");
+        Assert.assertTrue(panel.getAutosaveBadgeLabel().getText().contains("Cleared")
+                || panel.getAutosaveBadgeLabel().getText().contains("Not Answered"),
+                "Q2 should not be answered yet");
+
+        // 3. Select Option "D" on Q2 (Question ID 2)
+        panel.selectOption("D");
+        Assert.assertEquals("D", panel.getSelectedAnswers().get(2), "Selected answer for Q2 should be D");
+        Assert.assertEquals("● Saved", panel.getAutosaveBadgeLabel().getText(), "Autosave badge on Q2 should say Saved");
+
+        // 4. Jump via palette to Q4 (index 3, Question ID 4)
+        panel.navigateQuestion(3);
+        panel.selectOption("A");
+        Assert.assertEquals("A", panel.getSelectedAnswers().get(4), "Selected answer for Q4 should be A");
+
+        // 5. Navigate BACK to Q1 (index 0) - test answer restoration
+        panel.navigateQuestion(0);
+        Assert.assertEquals("B", panel.getSelectedAnswers().get(1), "Q1 selection must persist across navigation");
+        Assert.assertEquals("● Saved", panel.getAutosaveBadgeLabel().getText(), "Autosave badge should show Saved on return to Q1");
+
+        // 6. Test Clear Answer on Q1
+        panel.clearSelectedAnswer();
+        Assert.assertNull(panel.getSelectedAnswers().get(1), "Answer for Q1 should be removed from selectedAnswers");
+        Assert.assertEquals("○ Cleared", panel.getAutosaveBadgeLabel().getText(), "Autosave badge should show Cleared");
+        Assert.assertNull(examService.getAnswersForAttempt(attemptId).get(1), "Persistence store should clear answer for Q1");
+
+        // 7. Navigate away and back to verify cleared state remains intact
+        panel.navigateQuestion(1);
+        Assert.assertEquals("D", panel.getSelectedAnswers().get(2), "Q2 answer D must still be intact");
+        panel.navigateQuestion(0);
+        Assert.assertNull(panel.getSelectedAnswers().get(1), "Q1 must still remain cleared after navigating away and back");
+
+        panel.abandonActiveSession();
+        frame.dispose();
+    }
+
+    public void testSessionRecoveryAndBulkAnswerRestoration() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+
+        // Pre-create an attempt session and persist answers for Q1 ("C") and Q3 ("A")
+        com.qveto.exam.model.ExamAttempt restoredAttempt = examService.startAttempt(1, 1);
+        examService.recordAnswer(restoredAttempt.getAttemptId(), 1, "C");
+        examService.recordAnswer(restoredAttempt.getAttemptId(), 3, "A");
+
+        // Launch assessment with existing attempt
+        panel.startAssessment(sampleExam, restoredAttempt);
+
+        // Verify restored session state
+        Assert.assertEquals(2, panel.getAnsweredCount(), "Restored session should have 2 answered questions");
+        Assert.assertEquals("C", panel.getSelectedAnswers().get(1), "Q1 should be restored with answer C");
+        Assert.assertEquals("A", panel.getSelectedAnswers().get(3), "Q3 should be restored with answer A");
+        Assert.assertEquals("✓1", panel.getPaletteButtons().get(0).getText(), "Palette button 1 should have checkmark");
+        Assert.assertEquals("✓3", panel.getPaletteButtons().get(2).getText(), "Palette button 3 should have checkmark");
+        Assert.assertEquals(40, panel.getExamProgressBar().getValue(), "Progress bar should show 40% (2/5)");
+        Assert.assertTrue(panel.getPaletteSummaryLabel().getText().contains("2/5 Ans"), "Summary should show 2/5 Ans");
+
+        // On initial Q1 load, autosave badge should indicate Saved
+        Assert.assertEquals("● Saved", panel.getAutosaveBadgeLabel().getText(), "Autosave badge should reflect restored saved choice");
+
+        panel.abandonActiveSession();
+        frame.dispose();
+    }
 }
