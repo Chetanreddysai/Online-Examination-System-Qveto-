@@ -1,15 +1,13 @@
 package com.qveto.exam.dao;
 
+import com.qveto.exam.model.AttemptAnswer;
 import com.qveto.exam.model.AttemptStatus;
 import com.qveto.exam.model.ExamAttempt;
 import com.qveto.exam.model.SubmissionType;
 import com.qveto.exam.util.DBConnection;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Data Access Object for exam attempts and candidate answer persistence.
@@ -294,5 +292,83 @@ public class AttemptDAO {
     public boolean isAttemptActive(int attemptId) {
         AttemptStatus status = getAttemptStatus(attemptId);
         return status == AttemptStatus.IN_PROGRESS;
+    }
+
+    /**
+     * Retrieves the set of question IDs that have been answered (non-null and non-empty selection)
+     * for immediate rendering of green indicators on the Question Navigator / Palette.
+     */
+    public Set<Integer> getAnsweredQuestionIds(int attemptId) {
+        Set<Integer> answered = new HashSet<>();
+        String sql = "SELECT question_id FROM attempt_answers WHERE attempt_id = ? " +
+                     "AND selected_option IS NOT NULL AND TRIM(selected_option) != ''";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    answered.add(rs.getInt("question_id"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAnsweredQuestionIds error: " + e.getMessage());
+        }
+        return answered;
+    }
+
+    /**
+     * Retrieves a map of question IDs to boolean answered status for question palette fast-lookup.
+     */
+    public Map<Integer, Boolean> getQuestionPaletteStatuses(int attemptId) {
+        Map<Integer, Boolean> statuses = new HashMap<>();
+        String sql = "SELECT question_id, (selected_option IS NOT NULL AND TRIM(selected_option) != '') AS is_answered " +
+                     "FROM attempt_answers WHERE attempt_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    statuses.put(rs.getInt("question_id"), rs.getBoolean("is_answered"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getQuestionPaletteStatuses error: " + e.getMessage());
+        }
+        return statuses;
+    }
+
+    /**
+     * Retrieves detailed AttemptAnswer entity records for an attempt (used in post-exam breakdown review).
+     */
+    public List<AttemptAnswer> getAttemptAnswerRecords(int attemptId) {
+        List<AttemptAnswer> records = new ArrayList<>();
+        String sql = "SELECT answer_id, attempt_id, question_id, selected_option, is_correct, answered_at " +
+                     "FROM attempt_answers WHERE attempt_id = ? ORDER BY question_id ASC";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, attemptId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    AttemptAnswer record = new AttemptAnswer();
+                    record.setAnswerId(rs.getInt("answer_id"));
+                    record.setAttemptId(rs.getInt("attempt_id"));
+                    record.setQuestionId(rs.getInt("question_id"));
+                    record.setSelectedOption(rs.getString("selected_option"));
+                    boolean isCorr = rs.getBoolean("is_correct");
+                    if (!rs.wasNull()) record.setIsCorrect(isCorr);
+                    record.setAnsweredAt(rs.getTimestamp("answered_at"));
+                    records.add(record);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[AttemptDAO] getAttemptAnswerRecords error: " + e.getMessage());
+        }
+        return records;
     }
 }

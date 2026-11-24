@@ -187,4 +187,19 @@ public class DAOTest {
         int answeredCount = attemptDAO.getAnsweredCount(-9999);
         assertEquals(0, answeredCount, "Answered count for nonexistent attempt should be 0");
     }
+
+    public void testQuestionPaletteStatusRetrievalAndBulkAnswers() {
+        setUp();
+        java.util.Set<Integer> answeredIds = attemptDAO.getAnsweredQuestionIds(-9999);
+        assertNotNull(answeredIds, "Answered question IDs set should never be null");
+        assertEquals(0, answeredIds.size(), "Nonexistent attempt should return empty answered set");
+
+        java.util.Map<Integer, Boolean> paletteStatuses = attemptDAO.getQuestionPaletteStatuses(-9999);
+        assertNotNull(paletteStatuses, "Palette statuses map should never be null");
+        assertEquals(0, paletteStatuses.size(), "Nonexistent attempt should return empty palette map");
+
+        java.util.List<AttemptAnswer> records = attemptDAO.getAttemptAnswerRecords(-9999);
+        assertNotNull(records, "Attempt answer records list should never be null");
+        assertEquals(0, records.size(), "Nonexistent attempt should return empty records list");
+    }
 }
