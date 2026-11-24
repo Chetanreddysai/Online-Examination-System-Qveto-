@@ -67,7 +67,15 @@ public class AttemptAnswer {
         return isCorrect;
     }
 
+    public Boolean getIsCorrect() {
+        return isCorrect;
+    }
+
     public void setCorrect(Boolean correct) {
+        isCorrect = correct;
+    }
+
+    public void setIsCorrect(Boolean correct) {
         isCorrect = correct;
     }
 
