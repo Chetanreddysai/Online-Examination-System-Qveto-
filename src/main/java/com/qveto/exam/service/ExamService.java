@@ -248,6 +248,12 @@ public class ExamService {
         if (DBConnection.isDatabaseConnected()) {
             return attemptDAO.saveAnswer(attemptId, questionId, selectedOption);
         }
+        Map<Integer, String> answers = mockAttemptAnswers.computeIfAbsent(attemptId, k -> new HashMap<>());
+        if (selectedOption != null && !selectedOption.trim().isEmpty()) {
+            answers.put(questionId, selectedOption.trim());
+        } else {
+            answers.remove(questionId);
+        }
         return true;
     }
 

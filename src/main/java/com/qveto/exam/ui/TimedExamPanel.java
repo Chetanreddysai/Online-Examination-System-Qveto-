@@ -44,6 +44,7 @@ public class TimedExamPanel extends JPanel {
     private JLabel questionIndexLabel;
     private JLabel subjectBadgeLabel;
     private JLabel marksBadgeLabel;
+    private JLabel autosaveBadgeLabel;
     private JProgressBar examProgressBar;
     private JLabel progressStatusLabel;
     private JTextArea questionTextArea;
@@ -163,8 +164,20 @@ public class TimedExamPanel extends JPanel {
                 new EmptyBorder(3, 8, 3, 8)
         ));
 
+        autosaveBadgeLabel = new JLabel("● Autosaved");
+        autosaveBadgeLabel.setFont(AppConstants.FONT_SMALL);
+        autosaveBadgeLabel.setForeground(new Color(16, 185, 129));
+        autosaveBadgeLabel.setOpaque(true);
+        autosaveBadgeLabel.setBackground(new Color(236, 253, 245));
+        autosaveBadgeLabel.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(new Color(167, 243, 208), 1, true),
+                new EmptyBorder(3, 8, 3, 8)
+        ));
+        autosaveBadgeLabel.setToolTipText("Answers are continuously and safely persisted in real-time");
+
         badges.add(subjectBadgeLabel);
         badges.add(marksBadgeLabel);
+        badges.add(autosaveBadgeLabel);
 
         qMetaPanel.add(questionIndexLabel, BorderLayout.WEST);
         qMetaPanel.add(badges, BorderLayout.EAST);
@@ -302,13 +315,8 @@ public class TimedExamPanel extends JPanel {
         radio.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
 
         radio.addActionListener(e -> {
-            if (radio.isSelected() && currentIndex >= 0 && currentIndex < examQuestions.size()) {
-                Question q = examQuestions.get(currentIndex);
-                selectedAnswers.put(q.getQuestionId(), optionKey);
-                if (currentAttempt != null) {
-                    examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), optionKey);
-                }
-                updatePaletteButtons();
+            if (radio.isSelected()) {
+                selectOption(optionKey);
             }
         });
 
@@ -410,6 +418,13 @@ public class TimedExamPanel extends JPanel {
      * Initializes the timed assessment session for a candidate.
      */
     public void startAssessment(Exam exam) {
+        startAssessment(exam, null);
+    }
+
+    /**
+     * Initializes or resumes a timed assessment session with continuous answer restoration.
+     */
+    public void startAssessment(Exam exam, ExamAttempt existingAttempt) {
         this.currentExam = exam;
         this.selectedAnswers.clear();
         this.flaggedQuestions.clear();
@@ -419,8 +434,20 @@ public class TimedExamPanel extends JPanel {
         User user = SessionManager.getCurrentUser();
         int userId = user != null ? user.getUserId() : 1;
 
-        // Initialize attempt
-        this.currentAttempt = examService.startAttempt(userId, exam.getExamId());
+        // Initialize or resume attempt session
+        if (existingAttempt != null) {
+            this.currentAttempt = existingAttempt;
+        } else {
+            this.currentAttempt = examService.startAttempt(userId, exam.getExamId());
+        }
+
+        // Restore any existing persisted answers for this attempt (resilience against interruption/re-entry)
+        if (this.currentAttempt != null) {
+            Map<Integer, String> existingAnswers = examService.getAnswersForAttempt(this.currentAttempt.getAttemptId());
+            if (existingAnswers != null && !existingAnswers.isEmpty()) {
+                this.selectedAnswers.putAll(existingAnswers);
+            }
+        }
 
         // Fetch questions
         this.examQuestions = examService.getQuestionsForExam(exam.getExamId());
@@ -531,6 +558,8 @@ public class TimedExamPanel extends JPanel {
         else if ("C".equalsIgnoreCase(selected)) optionCRadio.setSelected(true);
         else if ("D".equalsIgnoreCase(selected)) optionDRadio.setSelected(true);
 
+        updateAutosaveBadge(selected != null && !selected.trim().isEmpty());
+
         // Update Nav button states
         prevBtn.setEnabled(currentIndex > 0);
         if (currentIndex == examQuestions.size() - 1) {
@@ -557,7 +586,7 @@ public class TimedExamPanel extends JPanel {
         }
     }
 
-    private void clearSelectedAnswer() {
+    public void clearSelectedAnswer() {
         if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
             Question q = examQuestions.get(currentIndex);
             selectedAnswers.remove(q.getQuestionId());
@@ -565,6 +594,7 @@ public class TimedExamPanel extends JPanel {
             if (currentAttempt != null) {
                 examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), null);
             }
+            updateAutosaveBadge(false);
             updatePaletteButtons();
             updateProgressDisplay();
         }
@@ -746,8 +776,32 @@ public class TimedExamPanel extends JPanel {
             if (currentAttempt != null) {
                 examService.recordAnswer(currentAttempt.getAttemptId(), q.getQuestionId(), optionKey);
             }
+            updateAutosaveBadge(true);
             updatePaletteButtons();
             updateProgressDisplay();
+        }
+    }
+
+    private void updateAutosaveBadge(boolean isSaved) {
+        if (autosaveBadgeLabel == null) return;
+        if (isSaved) {
+            autosaveBadgeLabel.setText("● Saved");
+            autosaveBadgeLabel.setForeground(new Color(16, 185, 129));
+            autosaveBadgeLabel.setBackground(new Color(236, 253, 245));
+            autosaveBadgeLabel.setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(new Color(167, 243, 208), 1, true),
+                    new EmptyBorder(3, 8, 3, 8)
+            ));
+            autosaveBadgeLabel.setToolTipText("Selection continuously saved to session persistence");
+        } else {
+            autosaveBadgeLabel.setText("○ Cleared");
+            autosaveBadgeLabel.setForeground(AppConstants.COLOR_TEXT_MUTED);
+            autosaveBadgeLabel.setBackground(new Color(241, 245, 249));
+            autosaveBadgeLabel.setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(AppConstants.COLOR_BORDER, 1, true),
+                    new EmptyBorder(3, 8, 3, 8)
+            ));
+            autosaveBadgeLabel.setToolTipText("No choice currently selected for this question");
         }
     }
 
@@ -991,5 +1045,13 @@ public class TimedExamPanel extends JPanel {
 
     public JButton getJumpFlaggedBtn() {
         return jumpFlaggedBtn;
+    }
+
+    public JLabel getAutosaveBadgeLabel() {
+        return autosaveBadgeLabel;
+    }
+
+    public ExamAttempt getCurrentAttempt() {
+        return currentAttempt;
     }
 }
