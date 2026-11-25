@@ -129,26 +129,188 @@ public class AttemptDAO {
         return 0;
     }
 
+    /**
+     * Submits an active in-progress attempt manually with pessimistic row-level locking.
+     */
+    public boolean submitAttempt(int attemptId, double score, double percentage, boolean passed) {
+        return finalizeAttemptWithLock(attemptId, SubmissionType.MANUAL, AttemptStatus.SUBMITTED,
+                score, percentage, passed);
+    }
+
+    /**
+     * Auto-submits an active attempt upon countdown timer expiry with pessimistic row-level locking.
+     */
+    public boolean timeoutAttempt(int attemptId, double score, double percentage, boolean passed) {
+        return finalizeAttemptWithLock(attemptId, SubmissionType.AUTO_TIMEOUT, AttemptStatus.TIMED_OUT,
+                score, percentage, passed);
+    }
+
+    /**
+     * Locks and marks an active attempt as TIMED_OUT with AUTO_TIMEOUT before or independent of grading.
+     */
+    public boolean timeoutAttempt(int attemptId) {
+        return finalizeAttemptWithLock(attemptId, SubmissionType.AUTO_TIMEOUT, AttemptStatus.TIMED_OUT,
+                null, null, null);
+    }
+
+    /**
+     * Locks and marks an interrupted attempt as ABANDONED without a submission type.
+     */
+    public boolean abandonAttempt(int attemptId) {
+        return finalizeAttemptWithLock(attemptId, null, AttemptStatus.ABANDONED,
+                null, null, null);
+    }
+
+    /**
+     * Finalizes an attempt using explicit submission type and terminal status under row-level locking.
+     */
     public boolean completeAttempt(int attemptId, SubmissionType submissionType, AttemptStatus status,
                                    double score, double percentage, boolean passed) {
-        String sql = "UPDATE exam_attempts SET end_time = CURRENT_TIMESTAMP, submission_type = ?, " +
-                     "status = ?, score = ?, percentage = ?, passed = ? WHERE attempt_id = ?";
+        AttemptStatus targetStatus = status;
+        if (targetStatus == null) {
+            targetStatus = (submissionType == SubmissionType.AUTO_TIMEOUT)
+                    ? AttemptStatus.TIMED_OUT
+                    : AttemptStatus.SUBMITTED;
+        }
+
+        SubmissionType effectiveSubmissionType = submissionType;
+        if (targetStatus == AttemptStatus.ABANDONED) {
+            effectiveSubmissionType = null;
+        } else if (effectiveSubmissionType == null) {
+            effectiveSubmissionType = (targetStatus == AttemptStatus.TIMED_OUT)
+                    ? SubmissionType.AUTO_TIMEOUT
+                    : SubmissionType.MANUAL;
+        }
+
+        return finalizeAttemptWithLock(attemptId, effectiveSubmissionType, targetStatus,
+                score, percentage, passed);
+    }
+
+    /**
+     * Performs a row-locked state transition from IN_PROGRESS to a terminal state.
+     * Prevents race conditions between simultaneous manual submission and timer auto-timeout.
+     */
+    private boolean finalizeAttemptWithLock(int attemptId, SubmissionType submissionType, AttemptStatus targetStatus,
+                                            Double score, Double percentage, Boolean passed) {
+        if (targetStatus == null || !targetStatus.isTerminal()) {
+            System.err.println("[AttemptDAO] Invalid non-terminal target status for finalization: " + targetStatus);
+            return false;
+        }
+
+        String lockSql = "SELECT status FROM exam_attempts WHERE attempt_id = ? FOR UPDATE";
+        String updateSql = "UPDATE exam_attempts SET end_time = CURRENT_TIMESTAMP, submission_type = ?, " +
+                           "status = ?, score = ?, percentage = ?, passed = ? " +
+                           "WHERE attempt_id = ? AND status = 'IN_PROGRESS'";
+
+        Connection conn = null;
+        boolean previousAutoCommit = true;
+
+        try {
+            conn = DBConnection.getConnection();
+            previousAutoCommit = conn.getAutoCommit();
+            // Hold InnoDB row lock across SELECT FOR UPDATE and UPDATE within one transaction
+            conn.setAutoCommit(false);
+
+            AttemptStatus currentStatus = null;
+            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+                lockStmt.setInt(1, attemptId);
+                try (ResultSet rs = lockStmt.executeQuery()) {
+                    if (rs.next()) {
+                        currentStatus = AttemptStatus.fromString(rs.getString("status"));
+                    }
+                }
+            }
+
+            if (currentStatus == null) {
+                conn.rollback();
+                return false;
+            }
+            if (currentStatus.isTerminal() || !currentStatus.canTransitionTo(targetStatus)) {
+                System.err.println("[AttemptDAO] Attempt " + attemptId + " is already locked in terminal state: " + currentStatus);
+                conn.rollback();
+                return false;
+            }
+
+            int updatedRows;
+            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                if (submissionType != null) {
+                    updateStmt.setString(1, submissionType.name());
+                } else {
+                    updateStmt.setNull(1, Types.VARCHAR);
+                }
+                updateStmt.setString(2, targetStatus.name());
+
+                if (score != null) {
+                    updateStmt.setDouble(3, score);
+                } else {
+                    updateStmt.setNull(3, Types.DECIMAL);
+                }
+                if (percentage != null) {
+                    updateStmt.setDouble(4, percentage);
+                } else {
+                    updateStmt.setNull(4, Types.DECIMAL);
+                }
+                if (passed != null) {
+                    updateStmt.setBoolean(5, passed);
+                } else {
+                    updateStmt.setNull(5, Types.BOOLEAN);
+                }
+
+                updateStmt.setInt(6, attemptId);
+                updatedRows = updateStmt.executeUpdate();
+            }
+
+            if (updatedRows > 0) {
+                conn.commit();
+                return true;
+            }
+            conn.rollback();
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackEx) {
+                    System.err.println("[AttemptDAO] finalizeAttemptWithLock rollback error: " + rollbackEx.getMessage());
+                }
+            }
+            System.err.println("[AttemptDAO] finalizeAttemptWithLock error: " + e.getMessage());
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(previousAutoCommit);
+                } catch (SQLException ignored) {
+                }
+                try {
+                    conn.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Bulk auto-timeout update for stale IN_PROGRESS attempts whose exam duration has elapsed.
+     *
+     * @return number of overdue attempts transitioned to TIMED_OUT
+     */
+    public int expireTimedOutAttempts() {
+        String sql = "UPDATE exam_attempts a " +
+                     "INNER JOIN exams e ON a.exam_id = e.exam_id " +
+                     "SET a.end_time = CURRENT_TIMESTAMP, " +
+                     "    a.submission_type = 'AUTO_TIMEOUT', " +
+                     "    a.status = 'TIMED_OUT' " +
+                     "WHERE a.status = 'IN_PROGRESS' " +
+                     "  AND TIMESTAMPDIFF(SECOND, a.start_time, CURRENT_TIMESTAMP) >= (e.duration_minutes * 60)";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setString(1, submissionType != null ? submissionType.name() : null);
-            stmt.setString(2, status != null ? status.name() : AttemptStatus.SUBMITTED.name());
-            stmt.setDouble(3, score);
-            stmt.setDouble(4, percentage);
-            stmt.setBoolean(5, passed);
-            stmt.setInt(6, attemptId);
-
-            return stmt.executeUpdate() > 0;
+            return stmt.executeUpdate();
         } catch (SQLException e) {
-            System.err.println("[AttemptDAO] completeAttempt error: " + e.getMessage());
+            System.err.println("[AttemptDAO] expireTimedOutAttempts error: " + e.getMessage());
         }
-        return false;
+        return 0;
     }
 
     public List<ExamAttempt> getAttemptsByUser(int userId) {
@@ -292,6 +454,14 @@ public class AttemptDAO {
     public boolean isAttemptActive(int attemptId) {
         AttemptStatus status = getAttemptStatus(attemptId);
         return status == AttemptStatus.IN_PROGRESS;
+    }
+
+    /**
+     * Checks if the attempt is locked in a terminal state (SUBMITTED, TIMED_OUT, or ABANDONED).
+     */
+    public boolean isAttemptLocked(int attemptId) {
+        AttemptStatus status = getAttemptStatus(attemptId);
+        return status != null && status.isTerminal();
     }
 
     /**

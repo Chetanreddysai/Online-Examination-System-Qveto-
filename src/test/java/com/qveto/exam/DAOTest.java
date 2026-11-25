@@ -202,4 +202,35 @@ public class DAOTest {
         assertNotNull(records, "Attempt answer records list should never be null");
         assertEquals(0, records.size(), "Nonexistent attempt should return empty records list");
     }
+
+    public void testTransactionalSubmissionAndTimeoutLocking() {
+        setUp();
+        // Non-terminal status transition must be rejected prior to database lock acquisition
+        boolean invalidTransition = attemptDAO.completeAttempt(
+                1, SubmissionType.MANUAL, AttemptStatus.IN_PROGRESS, 10.0, 20.0, false);
+        assertFalse(invalidTransition, "Finalizing an attempt into IN_PROGRESS must be rejected");
+
+        // Non-existent attempt IDs must safely return false for locked submission & timeout flows
+        boolean submitted = attemptDAO.submitAttempt(-9999, 45.0, 90.0, true);
+        assertFalse(submitted, "submitAttempt on nonexistent attempt must return false");
+
+        boolean timedOutWithScore = attemptDAO.timeoutAttempt(-9999, 20.0, 40.0, false);
+        assertFalse(timedOutWithScore, "Scored timeoutAttempt on nonexistent attempt must return false");
+
+        boolean timedOutUnscored = attemptDAO.timeoutAttempt(-9999);
+        assertFalse(timedOutUnscored, "Unscored timeoutAttempt on nonexistent attempt must return false");
+
+        boolean abandoned = attemptDAO.abandonAttempt(-9999);
+        assertFalse(abandoned, "abandonAttempt on nonexistent attempt must return false");
+
+        boolean completedNullStatus = attemptDAO.completeAttempt(
+                -9999, SubmissionType.AUTO_TIMEOUT, null, 15.0, 30.0, false);
+        assertFalse(completedNullStatus, "completeAttempt with inferred TIMED_OUT on nonexistent attempt must return false");
+
+        boolean locked = attemptDAO.isAttemptLocked(-9999);
+        assertFalse(locked, "Nonexistent attempt must not be reported as locked");
+
+        int expiredCount = attemptDAO.expireTimedOutAttempts();
+        assertTrue(expiredCount >= 0, "expireTimedOutAttempts must return non-negative count safely");
+    }
 }
