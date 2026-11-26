@@ -268,6 +268,16 @@ public class ExamService {
     }
 
     /**
+     * Checks if an attempt is locked in a terminal state (SUBMITTED, TIMED_OUT, ABANDONED).
+     */
+    public boolean isAttemptLocked(int attemptId) {
+        if (DBConnection.isDatabaseConnected()) {
+            return attemptDAO.isAttemptLocked(attemptId);
+        }
+        return false;
+    }
+
+    /**
      * Calculates score, marks, percentage, and passed state given student's answers,
      * and finalizes the attempt record.
      */

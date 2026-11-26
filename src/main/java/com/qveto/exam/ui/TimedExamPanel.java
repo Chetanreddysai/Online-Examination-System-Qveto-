@@ -30,6 +30,9 @@ public class TimedExamPanel extends JPanel {
     private final Set<Integer> flaggedQuestions = new HashSet<>();
     private int currentIndex = 0;
     private boolean examActive = false;
+    private boolean isSubmissionLocked = false;
+    private SubmissionType lastSubmissionType;
+    private ExamResult lastGradedResult;
 
     // Countdown Timer state
     private javax.swing.Timer countdownTimer;
@@ -430,6 +433,10 @@ public class TimedExamPanel extends JPanel {
         this.flaggedQuestions.clear();
         this.currentIndex = 0;
         this.examActive = true;
+        this.isSubmissionLocked = false;
+        this.lastSubmissionType = null;
+        this.lastGradedResult = null;
+        unlockAllControls();
 
         User user = SessionManager.getCurrentUser();
         int userId = user != null ? user.getUserId() : 1;
@@ -576,6 +583,9 @@ public class TimedExamPanel extends JPanel {
     }
 
     public void navigateQuestion(int targetIndex) {
+        if (isSubmissionLocked) {
+            return;
+        }
         if (targetIndex >= examQuestions.size()) {
             confirmAndSubmit(false);
             return;
@@ -587,6 +597,9 @@ public class TimedExamPanel extends JPanel {
     }
 
     public void clearSelectedAnswer() {
+        if (isSubmissionLocked || !examActive) {
+            return;
+        }
         if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
             Question q = examQuestions.get(currentIndex);
             selectedAnswers.remove(q.getQuestionId());
@@ -658,57 +671,110 @@ public class TimedExamPanel extends JPanel {
         }
     }
 
-    private void confirmAndSubmit(boolean isTimeout) {
-        int answeredCount = selectedAnswers.size();
-        int total = examQuestions.size();
-        int flaggedCount = flaggedQuestions.size();
-
-        if (!isTimeout) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(String.format("You have answered %d of %d questions.\n", answeredCount, total));
-            if (flaggedCount > 0) {
-                sb.append(String.format("⚠️ Note: You have %d question(s) flagged for review.\n", flaggedCount));
-            }
-            sb.append("\nOnce submitted, answers cannot be modified.\n");
-            sb.append("Are you sure you want to finish and submit your exam?");
-
-            int choice = JOptionPane.showConfirmDialog(
-                    this,
-                    sb.toString(),
-                    "Confirm Final Submission",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE
-            );
-
-            if (choice != JOptionPane.YES_OPTION) {
-                return;
-            }
+    public void confirmAndSubmit(boolean isTimeout) {
+        if (isSubmissionLocked) {
+            return;
         }
 
-        finalizeExamSubmission(isTimeout ? SubmissionType.AUTO_TIMEOUT : SubmissionType.MANUAL);
-    }
+        if (isTimeout) {
+            handleAutoTimeoutSubmission();
+            return;
+        }
 
-    private void handleAutoTimeoutSubmission() {
-        // Disable options immediately to prevent post-submission tampering
-        optionARadio.setEnabled(false);
-        optionBRadio.setEnabled(false);
-        optionCRadio.setEnabled(false);
-        optionDRadio.setEnabled(false);
-        submitBtn.setEnabled(false);
+        int answeredCount = selectedAnswers.size();
+        int total = examQuestions.size();
+        int unansweredCount = Math.max(0, total - answeredCount);
+        int flaggedCount = flaggedQuestions.size();
+        int minutes = remainingSeconds / 60;
+        int seconds = remainingSeconds % 60;
+        String timeStr = String.format("%02d:%02d", minutes, seconds);
 
-        JOptionPane.showMessageDialog(
+        StringBuilder sb = new StringBuilder();
+        sb.append("═══════════════════════════════════════\n");
+        sb.append("         EXAMINATION SUBMISSION SUMMARY         \n");
+        sb.append("═══════════════════════════════════════\n\n");
+        sb.append(String.format("• Total Questions:       %d\n", total));
+        sb.append(String.format("• Answered Questions:    %d\n", answeredCount));
+        sb.append(String.format("• Unanswered Questions:  %d\n", unansweredCount));
+        sb.append(String.format("• Flagged for Review:    %d\n", flaggedCount));
+        sb.append(String.format("• Time Remaining:        %s\n\n", timeStr));
+
+        if (unansweredCount > 0) {
+            sb.append(String.format("⚠️ WARNING: You have %d unanswered question(s)!\n", unansweredCount));
+        }
+        if (flaggedCount > 0) {
+            sb.append(String.format("⚠️ NOTICE: You have %d question(s) flagged for review.\n", flaggedCount));
+        }
+
+        sb.append("\nOnce submitted, your assessment will be locked immediately and answers cannot be modified.\n\n");
+        sb.append("Are you sure you want to finish and submit your exam now?");
+
+        int choice = JOptionPane.showConfirmDialog(
                 this,
-                "Time has expired!\nYour assessment answers have been locked and submitted automatically.",
-                "Examination Timeout",
+                sb.toString(),
+                "Confirm Final Assessment Submission",
+                JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE
         );
 
+        if (choice == JOptionPane.YES_OPTION) {
+            finalizeExamSubmission(SubmissionType.MANUAL);
+        }
+    }
+
+    public void handleAutoTimeoutSubmission() {
+        handleAutoTimeoutSubmission(true);
+    }
+
+    public void handleAutoTimeoutSubmission(boolean showDialog) {
+        if (isSubmissionLocked) {
+            return;
+        }
+
+        // 1. Lock all controls instantly to prevent race conditions or post-timeout tampering
+        lockAllControls();
+
+        // 2. Alert the candidate of the automatic lockdown
+        if (showDialog && !java.awt.GraphicsEnvironment.isHeadless()) {
+            try {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Time has expired (00:00)!\n\nAll answer inputs and controls have been locked.\nYour assessment has been submitted automatically.",
+                        "Assessment Auto-Timeout Lockdown",
+                        JOptionPane.WARNING_MESSAGE
+                );
+            } catch (Exception ignored) {
+            }
+        }
+
+        // 3. Complete and grade attempt as AUTO_TIMEOUT
         finalizeExamSubmission(SubmissionType.AUTO_TIMEOUT);
     }
 
+    public void submitAssessment(SubmissionType submissionType) {
+        finalizeExamSubmission(submissionType);
+    }
+
     private void finalizeExamSubmission(SubmissionType submissionType) {
-        if (countdownTimer != null) {
-            countdownTimer.stop();
+        lockAllControls();
+        this.lastSubmissionType = submissionType;
+
+        if (submissionType == SubmissionType.AUTO_TIMEOUT) {
+            if (timerBadgeLabel != null) {
+                timerBadgeLabel.setText("⏱️ 00:00 (EXPIRED)");
+                timerBadgeLabel.setBackground(AppConstants.COLOR_DANGER);
+            }
+            if (autosaveBadgeLabel != null) {
+                autosaveBadgeLabel.setText("🔒 Locked (Auto-Timeout)");
+                autosaveBadgeLabel.setForeground(AppConstants.COLOR_DANGER);
+                autosaveBadgeLabel.setBackground(new Color(254, 242, 242));
+            }
+        } else {
+            if (autosaveBadgeLabel != null) {
+                autosaveBadgeLabel.setText("🔒 Locked & Submitted");
+                autosaveBadgeLabel.setForeground(new Color(16, 185, 129));
+                autosaveBadgeLabel.setBackground(new Color(236, 253, 245));
+            }
         }
 
         User user = SessionManager.getCurrentUser();
@@ -716,20 +782,69 @@ public class TimedExamPanel extends JPanel {
         int attemptId = currentAttempt != null ? currentAttempt.getAttemptId() : 1;
 
         // Grade attempt
-        ExamResult result = examService.gradeAttempt(
+        this.lastGradedResult = examService.gradeAttempt(
                 attemptId, userId, currentExam, examQuestions, selectedAnswers, submissionType
         );
 
+        // Transition to Result Screen
+        mainFrame.showExamResult(this.lastGradedResult, currentExam, examQuestions, selectedAnswers);
+    }
+
+    public void lockAllControls() {
+        this.isSubmissionLocked = true;
         this.examActive = false;
 
-        // Transition to Result Screen
-        mainFrame.showExamResult(result, currentExam, examQuestions, selectedAnswers);
+        if (countdownTimer != null && countdownTimer.isRunning()) {
+            countdownTimer.stop();
+        }
+
+        if (optionARadio != null) optionARadio.setEnabled(false);
+        if (optionBRadio != null) optionBRadio.setEnabled(false);
+        if (optionCRadio != null) optionCRadio.setEnabled(false);
+        if (optionDRadio != null) optionDRadio.setEnabled(false);
+
+        if (prevBtn != null) prevBtn.setEnabled(false);
+        if (nextBtn != null) nextBtn.setEnabled(false);
+        if (clearBtn != null) clearBtn.setEnabled(false);
+        if (flagBtn != null) flagBtn.setEnabled(false);
+        if (submitBtn != null) submitBtn.setEnabled(false);
+
+        if (jumpUnansweredBtn != null) jumpUnansweredBtn.setEnabled(false);
+        if (jumpFlaggedBtn != null) jumpFlaggedBtn.setEnabled(false);
+
+        for (JButton btn : paletteButtons) {
+            btn.setEnabled(false);
+        }
+    }
+
+    public void unlockAllControls() {
+        this.isSubmissionLocked = false;
+        this.examActive = true;
+
+        if (optionARadio != null) optionARadio.setEnabled(true);
+        if (optionBRadio != null) optionBRadio.setEnabled(true);
+        if (optionCRadio != null) optionCRadio.setEnabled(true);
+        if (optionDRadio != null) optionDRadio.setEnabled(true);
+
+        if (clearBtn != null) clearBtn.setEnabled(true);
+        if (flagBtn != null) flagBtn.setEnabled(true);
+        if (submitBtn != null) submitBtn.setEnabled(true);
+
+        if (jumpUnansweredBtn != null) jumpUnansweredBtn.setEnabled(true);
+        if (jumpFlaggedBtn != null) jumpFlaggedBtn.setEnabled(true);
+
+        for (JButton btn : paletteButtons) {
+            btn.setEnabled(true);
+        }
     }
 
     /**
      * Toggles the "Mark for Review" state of the current active question.
      */
     public void toggleFlagCurrentQuestion() {
+        if (isSubmissionLocked || !examActive) {
+            return;
+        }
         if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
             Question q = examQuestions.get(currentIndex);
             if (flaggedQuestions.contains(q.getQuestionId())) {
@@ -764,6 +879,9 @@ public class TimedExamPanel extends JPanel {
      * Selects an option (A, B, C, D) programmatically or via keyboard shortcut.
      */
     public void selectOption(String optionKey) {
+        if (isSubmissionLocked || !examActive) {
+            return;
+        }
         if (currentIndex >= 0 && currentIndex < examQuestions.size()) {
             Question q = examQuestions.get(currentIndex);
             selectedAnswers.put(q.getQuestionId(), optionKey);
@@ -993,6 +1111,7 @@ public class TimedExamPanel extends JPanel {
      * Jumps to the next unanswered question in the palette sequence.
      */
     public void jumpToNextUnanswered() {
+        if (isSubmissionLocked) return;
         int next = findNextUnansweredIndex();
         if (next >= 0) {
             navigateQuestion(next);
@@ -1008,6 +1127,7 @@ public class TimedExamPanel extends JPanel {
      * Jumps to the next flagged question in the palette sequence.
      */
     public void jumpToNextFlagged() {
+        if (isSubmissionLocked) return;
         int next = findNextFlaggedIndex();
         if (next >= 0) {
             navigateQuestion(next);
@@ -1053,5 +1173,53 @@ public class TimedExamPanel extends JPanel {
 
     public ExamAttempt getCurrentAttempt() {
         return currentAttempt;
+    }
+
+    public boolean isSubmissionLocked() {
+        return isSubmissionLocked;
+    }
+
+    public SubmissionType getLastSubmissionType() {
+        return lastSubmissionType;
+    }
+
+    public ExamResult getLastGradedResult() {
+        return lastGradedResult;
+    }
+
+    public JButton getSubmitBtn() {
+        return submitBtn;
+    }
+
+    public JButton getPrevBtn() {
+        return prevBtn;
+    }
+
+    public JButton getNextBtn() {
+        return nextBtn;
+    }
+
+    public JButton getClearBtn() {
+        return clearBtn;
+    }
+
+    public JButton getFlagBtn() {
+        return flagBtn;
+    }
+
+    public JRadioButton getOptionARadio() {
+        return optionARadio;
+    }
+
+    public JRadioButton getOptionBRadio() {
+        return optionBRadio;
+    }
+
+    public JRadioButton getOptionCRadio() {
+        return optionCRadio;
+    }
+
+    public JRadioButton getOptionDRadio() {
+        return optionDRadio;
     }
 }
