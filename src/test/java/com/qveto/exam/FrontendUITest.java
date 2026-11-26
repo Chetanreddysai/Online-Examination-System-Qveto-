@@ -364,4 +364,102 @@ public class FrontendUITest {
         panel.abandonActiveSession();
         frame.dispose();
     }
+
+    public void testSubmissionControlsAndTimeoutLockdown() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        // 1. Initial State before submission
+        Assert.assertFalse(panel.isSubmissionLocked(), "Assessment must start in unlocked state");
+        Assert.assertTrue(panel.isExamActive(), "Assessment must be active initially");
+        Assert.assertTrue(panel.getOptionARadio().isEnabled(), "Radio options must be enabled initially");
+        Assert.assertTrue(panel.getSubmitBtn().isEnabled(), "Submit button must be enabled initially");
+        Assert.assertTrue(panel.getPaletteButtons().get(0).isEnabled(), "Palette buttons must be enabled initially");
+
+        // 2. Select Option on Q1 (index 0) and flag Q2 (index 1)
+        panel.selectOption("B");
+        panel.navigateQuestion(1);
+        panel.toggleFlagCurrentQuestion();
+        Assert.assertEquals("B", panel.getSelectedAnswers().get(1), "Q1 should have choice B");
+        Assert.assertTrue(panel.isQuestionFlagged(2), "Q2 should be flagged");
+
+        // 3. Trigger Auto-Timeout Submission Lockdown
+        panel.handleAutoTimeoutSubmission(false);
+
+        // 4. Verify Immediate Lockdown
+        Assert.assertTrue(panel.isSubmissionLocked(), "Assessment must be locked after auto-timeout");
+        Assert.assertFalse(panel.isExamActive(), "Assessment must no longer be active");
+        Assert.assertEquals(SubmissionType.AUTO_TIMEOUT, panel.getLastSubmissionType(), "Submission type should be AUTO_TIMEOUT");
+        Assert.assertNotNull(panel.getLastGradedResult(), "Graded exam result must be produced");
+        Assert.assertEquals(1, panel.getLastGradedResult().getAnsweredCount(), "Result should record 1 answered question");
+
+        // Verify all interactive UI controls are disabled
+        Assert.assertFalse(panel.getOptionARadio().isEnabled(), "Option A radio must be disabled upon lockdown");
+        Assert.assertFalse(panel.getOptionBRadio().isEnabled(), "Option B radio must be disabled upon lockdown");
+        Assert.assertFalse(panel.getOptionCRadio().isEnabled(), "Option C radio must be disabled upon lockdown");
+        Assert.assertFalse(panel.getOptionDRadio().isEnabled(), "Option D radio must be disabled upon lockdown");
+        Assert.assertFalse(panel.getSubmitBtn().isEnabled(), "Submit button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getPrevBtn().isEnabled(), "Previous button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getNextBtn().isEnabled(), "Next button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getClearBtn().isEnabled(), "Clear button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getFlagBtn().isEnabled(), "Flag button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getJumpUnansweredBtn().isEnabled(), "Jump unanswered button must be disabled upon lockdown");
+        Assert.assertFalse(panel.getJumpFlaggedBtn().isEnabled(), "Jump flagged button must be disabled upon lockdown");
+
+        for (JButton palBtn : panel.getPaletteButtons()) {
+            Assert.assertFalse(palBtn.isEnabled(), "Palette button must be disabled upon lockdown");
+        }
+
+        // Verify timer and autosave visual indicators
+        Assert.assertTrue(panel.getTimerBadgeLabel().getText().contains("00:00"), "Timer badge should indicate 00:00 expiry");
+        Assert.assertTrue(panel.getAutosaveBadgeLabel().getText().contains("Locked"), "Autosave badge should indicate Locked");
+
+        // 5. Verify Tamper-Proofing (no post-submission mutations allowed)
+        panel.selectOption("C");
+        Assert.assertFalse("C".equals(panel.getSelectedAnswers().get(2)), "Option selection after lock must be rejected");
+
+        panel.clearSelectedAnswer();
+        Assert.assertEquals("B", panel.getSelectedAnswers().get(1), "Clearing answer after lock must be rejected");
+
+        panel.toggleFlagCurrentQuestion();
+        Assert.assertTrue(panel.isQuestionFlagged(2), "Toggling flag after lock must be rejected");
+
+        int curIdx = panel.getCurrentIndex();
+        panel.navigateQuestion(3);
+        Assert.assertEquals(curIdx, panel.getCurrentIndex(), "Navigation after lock must be rejected");
+
+        frame.dispose();
+    }
+
+    public void testManualSubmissionControlsAndReLockPrevention() {
+        ExamService examService = new ExamService();
+        MainFrame frame = new MainFrame();
+        TimedExamPanel panel = new TimedExamPanel(frame, examService);
+
+        Exam sampleExam = new Exam(1, "Test Assessment", "Desc", 15, 5, 50.0, 50.0, true);
+        panel.startAssessment(sampleExam);
+
+        // Answer Q1 with "C" (which is correct)
+        panel.selectOption("C");
+
+        // Submit via manual submission
+        panel.submitAssessment(SubmissionType.MANUAL);
+
+        Assert.assertTrue(panel.isSubmissionLocked(), "Assessment should be locked after manual submission");
+        Assert.assertEquals(SubmissionType.MANUAL, panel.getLastSubmissionType(), "Last submission type should be MANUAL");
+        Assert.assertNotNull(panel.getLastGradedResult(), "Graded exam result should be generated");
+        Assert.assertEquals(1, panel.getLastGradedResult().getAnsweredCount(), "1 question answered");
+        Assert.assertTrue(panel.getAutosaveBadgeLabel().getText().contains("Submitted"), "Autosave badge should show Submitted");
+
+        // Test Unlock / New Session reset
+        panel.unlockAllControls();
+        Assert.assertFalse(panel.isSubmissionLocked(), "Controls should be unlocked after unlockAllControls");
+        Assert.assertTrue(panel.getSubmitBtn().isEnabled(), "Submit button should be re-enabled");
+
+        frame.dispose();
+    }
 }
