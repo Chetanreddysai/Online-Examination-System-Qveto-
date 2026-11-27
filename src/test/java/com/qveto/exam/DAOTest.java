@@ -233,4 +233,32 @@ public class DAOTest {
         int expiredCount = attemptDAO.expireTimedOutAttempts();
         assertTrue(expiredCount >= 0, "expireTimedOutAttempts must return non-negative count safely");
     }
+
+    public void testACIDExamFinalizationTransactionBoundaries() {
+        setUp();
+        // Null result or invalid identity guards must reject before opening transaction
+        assertFalse(attemptDAO.finalizeAttemptTransaction(null, SubmissionType.MANUAL),
+                "Null ExamResult must be rejected");
+
+        ExamResult invalidIdsResult = new ExamResult(0, -9999, 0, 0, 5, 3, 2, 1, 20.0, 50.0, 40.0, false, null);
+        assertFalse(attemptDAO.finalizeAttemptTransaction(invalidIdsResult, SubmissionType.MANUAL),
+                "Result with non-positive userId/examId/attemptId must be rejected");
+
+        ExamResult validResult = new ExamResult(0, 9999, 2, 1, 5, 5, 4, 1, 40.0, 50.0, 80.0, true, null);
+        // Non-terminal target status must be rejected
+        assertFalse(attemptDAO.finalizeAttemptTransaction(
+                9999, SubmissionType.MANUAL, AttemptStatus.IN_PROGRESS, validResult, null, null),
+                "ACID finalization into IN_PROGRESS must be rejected");
+
+        // Transaction against nonexistent attempt must safely roll back and return false without throwing
+        validResult.setAttemptId(-9999);
+        assertFalse(attemptDAO.finalizeAttemptTransaction(validResult, SubmissionType.AUTO_TIMEOUT),
+                "ACID auto-timeout finalization on nonexistent attempt must roll back safely");
+
+        java.util.List<Question> emptyQuestions = java.util.Collections.emptyList();
+        java.util.Map<Integer, String> emptyAnswers = java.util.Collections.emptyMap();
+        assertFalse(attemptDAO.finalizeAttemptTransaction(
+                999999, SubmissionType.MANUAL, AttemptStatus.SUBMITTED, validResult, emptyQuestions, emptyAnswers),
+                "ACID manual finalization on missing/unreachable attempt must roll back safely");
+    }
 }

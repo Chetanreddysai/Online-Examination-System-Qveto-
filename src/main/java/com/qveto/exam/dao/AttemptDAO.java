@@ -3,6 +3,8 @@ package com.qveto.exam.dao;
 import com.qveto.exam.model.AttemptAnswer;
 import com.qveto.exam.model.AttemptStatus;
 import com.qveto.exam.model.ExamAttempt;
+import com.qveto.exam.model.ExamResult;
+import com.qveto.exam.model.Question;
 import com.qveto.exam.model.SubmissionType;
 import com.qveto.exam.util.DBConnection;
 
@@ -197,11 +199,6 @@ public class AttemptDAO {
             return false;
         }
 
-        String lockSql = "SELECT status FROM exam_attempts WHERE attempt_id = ? FOR UPDATE";
-        String updateSql = "UPDATE exam_attempts SET end_time = CURRENT_TIMESTAMP, submission_type = ?, " +
-                           "status = ?, score = ?, percentage = ?, passed = ? " +
-                           "WHERE attempt_id = ? AND status = 'IN_PROGRESS'";
-
         Connection conn = null;
         boolean previousAutoCommit = true;
 
@@ -211,82 +208,273 @@ public class AttemptDAO {
             // Hold InnoDB row lock across SELECT FOR UPDATE and UPDATE within one transaction
             conn.setAutoCommit(false);
 
-            AttemptStatus currentStatus = null;
-            try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
-                lockStmt.setInt(1, attemptId);
-                try (ResultSet rs = lockStmt.executeQuery()) {
-                    if (rs.next()) {
-                        currentStatus = AttemptStatus.fromString(rs.getString("status"));
-                    }
-                }
-            }
-
-            if (currentStatus == null) {
-                conn.rollback();
-                return false;
-            }
-            if (currentStatus.isTerminal() || !currentStatus.canTransitionTo(targetStatus)) {
-                System.err.println("[AttemptDAO] Attempt " + attemptId + " is already locked in terminal state: " + currentStatus);
-                conn.rollback();
+            if (!lockAndTransitionAttempt(conn, attemptId, submissionType, targetStatus, score, percentage, passed)) {
+                rollbackQuietly(conn, null);
                 return false;
             }
 
-            int updatedRows;
-            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                if (submissionType != null) {
-                    updateStmt.setString(1, submissionType.name());
-                } else {
-                    updateStmt.setNull(1, Types.VARCHAR);
-                }
-                updateStmt.setString(2, targetStatus.name());
-
-                if (score != null) {
-                    updateStmt.setDouble(3, score);
-                } else {
-                    updateStmt.setNull(3, Types.DECIMAL);
-                }
-                if (percentage != null) {
-                    updateStmt.setDouble(4, percentage);
-                } else {
-                    updateStmt.setNull(4, Types.DECIMAL);
-                }
-                if (passed != null) {
-                    updateStmt.setBoolean(5, passed);
-                } else {
-                    updateStmt.setNull(5, Types.BOOLEAN);
-                }
-
-                updateStmt.setInt(6, attemptId);
-                updatedRows = updateStmt.executeUpdate();
-            }
-
-            if (updatedRows > 0) {
-                conn.commit();
-                return true;
-            }
-            conn.rollback();
+            conn.commit();
+            return true;
         } catch (SQLException e) {
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackEx) {
-                    System.err.println("[AttemptDAO] finalizeAttemptWithLock rollback error: " + rollbackEx.getMessage());
-                }
-            }
+            rollbackQuietly(conn, null);
             System.err.println("[AttemptDAO] finalizeAttemptWithLock error: " + e.getMessage());
         } finally {
-            if (conn != null) {
-                try {
-                    conn.setAutoCommit(previousAutoCommit);
-                } catch (SQLException ignored) {
-                }
-                try {
-                    conn.close();
-                } catch (SQLException ignored) {
+            restoreAndClose(conn, previousAutoCommit);
+        }
+        return false;
+    }
+
+    /**
+     * Atomically finalizes an examination attempt across exam_attempts, attempt_answers, and exam_results
+     * within a single ACID transaction boundary (setAutoCommit(false) + savepoint + rollback on error).
+     */
+    public boolean finalizeAttemptTransaction(int attemptId, SubmissionType submissionType, AttemptStatus targetStatus,
+                                            ExamResult result, List<Question> questions,
+                                            Map<Integer, String> selectedAnswers) {
+        if (result == null || attemptId <= 0 || result.getUserId() <= 0 || result.getExamId() <= 0) {
+            System.err.println("[AttemptDAO] Rejecting ACID finalization with invalid attempt or result payload.");
+            return false;
+        }
+
+        AttemptStatus resolvedStatus = resolveTargetStatus(submissionType, targetStatus);
+        if (!resolvedStatus.isTerminal()) {
+            System.err.println("[AttemptDAO] Invalid non-terminal target status for ACID finalization: " + resolvedStatus);
+            return false;
+        }
+        SubmissionType resolvedSubmission = resolveSubmissionType(submissionType, resolvedStatus);
+
+        Connection conn = null;
+        boolean previousAutoCommit = true;
+        Savepoint preFinalizationSavepoint = null;
+
+        try {
+            conn = DBConnection.getConnection();
+            previousAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            preFinalizationSavepoint = conn.setSavepoint("before_exam_finalization");
+
+            // 1. Lock and transition exam_attempts from IN_PROGRESS to terminal state
+            boolean transitioned = lockAndTransitionAttempt(
+                    conn, attemptId, resolvedSubmission, resolvedStatus,
+                    result.getScore(), result.getPercentage(), result.isPassed()
+            );
+            if (!transitioned) {
+                rollbackQuietly(conn, preFinalizationSavepoint);
+                return false;
+            }
+
+            // 2. Persist any uncommitted answer selections and compute per-answer correctness atomically
+            if (questions != null && !questions.isEmpty() && selectedAnswers != null) {
+                flushAnswersInTransaction(conn, attemptId, questions, selectedAnswers);
+            }
+            gradeAttemptAnswersInTransaction(conn, attemptId);
+
+            // 3. Persist final graded summary into exam_results inside the same ACID boundary
+            result.setAttemptId(attemptId);
+            if (!insertExamResultInTransaction(conn, result)) {
+                rollbackQuietly(conn, preFinalizationSavepoint);
+                return false;
+            }
+
+            conn.commit();
+            return true;
+        } catch (SQLException e) {
+            rollbackQuietly(conn, preFinalizationSavepoint);
+            System.err.println("[AttemptDAO] finalizeAttemptTransaction rolled back due to error: " + e.getMessage());
+        } finally {
+            restoreAndClose(conn, previousAutoCommit);
+        }
+        return false;
+    }
+
+    /**
+     * Convenience overload to atomically finalize an attempt and persist its graded result
+     * using answers already persisted in attempt_answers.
+     */
+    public boolean finalizeAttemptTransaction(ExamResult result, SubmissionType submissionType) {
+        if (result == null) {
+            return false;
+        }
+        AttemptStatus status = (submissionType == SubmissionType.AUTO_TIMEOUT)
+                ? AttemptStatus.TIMED_OUT
+                : AttemptStatus.SUBMITTED;
+        return finalizeAttemptTransaction(result.getAttemptId(), submissionType, status, result, null, null);
+    }
+
+    private AttemptStatus resolveTargetStatus(SubmissionType submissionType, AttemptStatus status) {
+        if (status != null) {
+            return status;
+        }
+        return (submissionType == SubmissionType.AUTO_TIMEOUT)
+                ? AttemptStatus.TIMED_OUT
+                : AttemptStatus.SUBMITTED;
+    }
+
+    private SubmissionType resolveSubmissionType(SubmissionType submissionType, AttemptStatus targetStatus) {
+        if (targetStatus == AttemptStatus.ABANDONED) {
+            return null;
+        }
+        if (submissionType != null) {
+            return submissionType;
+        }
+        return (targetStatus == AttemptStatus.TIMED_OUT)
+                ? SubmissionType.AUTO_TIMEOUT
+                : SubmissionType.MANUAL;
+    }
+
+    private boolean lockAndTransitionAttempt(Connection conn, int attemptId, SubmissionType submissionType,
+                                             AttemptStatus targetStatus, Double score, Double percentage,
+                                             Boolean passed) throws SQLException {
+        String lockSql = "SELECT status FROM exam_attempts WHERE attempt_id = ? FOR UPDATE";
+        String updateSql = "UPDATE exam_attempts SET end_time = CURRENT_TIMESTAMP, submission_type = ?, " +
+                           "status = ?, score = ?, percentage = ?, passed = ? " +
+                           "WHERE attempt_id = ? AND status = 'IN_PROGRESS'";
+
+        AttemptStatus currentStatus = null;
+        try (PreparedStatement lockStmt = conn.prepareStatement(lockSql)) {
+            lockStmt.setInt(1, attemptId);
+            try (ResultSet rs = lockStmt.executeQuery()) {
+                if (rs.next()) {
+                    currentStatus = AttemptStatus.fromString(rs.getString("status"));
                 }
             }
         }
+
+        if (currentStatus == null) {
+            return false;
+        }
+        if (currentStatus.isTerminal() || !currentStatus.canTransitionTo(targetStatus)) {
+            System.err.println("[AttemptDAO] Attempt " + attemptId + " is already locked in terminal state: " + currentStatus);
+            return false;
+        }
+
+        try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+            if (submissionType != null) {
+                updateStmt.setString(1, submissionType.name());
+            } else {
+                updateStmt.setNull(1, Types.VARCHAR);
+            }
+            updateStmt.setString(2, targetStatus.name());
+
+            if (score != null) {
+                updateStmt.setDouble(3, score);
+            } else {
+                updateStmt.setNull(3, Types.DECIMAL);
+            }
+            if (percentage != null) {
+                updateStmt.setDouble(4, percentage);
+            } else {
+                updateStmt.setNull(4, Types.DECIMAL);
+            }
+            if (passed != null) {
+                updateStmt.setBoolean(5, passed);
+            } else {
+                updateStmt.setNull(5, Types.BOOLEAN);
+            }
+
+            updateStmt.setInt(6, attemptId);
+            return updateStmt.executeUpdate() > 0;
+        }
+    }
+
+    private void flushAnswersInTransaction(Connection conn, int attemptId, List<Question> questions,
+                                           Map<Integer, String> selectedAnswers) throws SQLException {
+        String upsertSql = "INSERT INTO attempt_answers (attempt_id, question_id, selected_option, answered_at) " +
+                           "VALUES (?, ?, ?, CURRENT_TIMESTAMP) " +
+                           "ON DUPLICATE KEY UPDATE selected_option = VALUES(selected_option), answered_at = CURRENT_TIMESTAMP";
+
+        try (PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
+            for (Question q : questions) {
+                String rawChoice = selectedAnswers.get(q.getQuestionId());
+                String normalizedChoice = (rawChoice != null && !rawChoice.trim().isEmpty())
+                        ? rawChoice.trim().toUpperCase()
+                        : null;
+                stmt.setInt(1, attemptId);
+                stmt.setInt(2, q.getQuestionId());
+                if (normalizedChoice != null) {
+                    stmt.setString(3, normalizedChoice);
+                } else {
+                    stmt.setNull(3, Types.VARCHAR);
+                }
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        }
+    }
+
+    private void gradeAttemptAnswersInTransaction(Connection conn, int attemptId) throws SQLException {
+        String gradeSql = "UPDATE attempt_answers aa " +
+                          "INNER JOIN questions q ON aa.question_id = q.question_id " +
+                          "SET aa.is_correct = CASE " +
+                          "    WHEN aa.selected_option IS NULL THEN NULL " +
+                          "    WHEN aa.selected_option = q.correct_option THEN TRUE " +
+                          "    ELSE FALSE " +
+                          "END " +
+                          "WHERE aa.attempt_id = ?";
+
+        try (PreparedStatement stmt = conn.prepareStatement(gradeSql)) {
+            stmt.setInt(1, attemptId);
+            stmt.executeUpdate();
+        }
+    }
+
+    private boolean insertExamResultInTransaction(Connection conn, ExamResult result) throws SQLException {
+        String sql = "INSERT INTO exam_results (attempt_id, user_id, exam_id, total_questions, " +
+                     "answered_count, correct_count, incorrect_count, score, total_marks, percentage, passed) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            stmt.setInt(1, result.getAttemptId());
+            stmt.setInt(2, result.getUserId());
+            stmt.setInt(3, result.getExamId());
+            stmt.setInt(4, result.getTotalQuestions());
+            stmt.setInt(5, result.getAnsweredCount());
+            stmt.setInt(6, result.getCorrectCount());
+            stmt.setInt(7, result.getIncorrectCount());
+            stmt.setDouble(8, result.getScore());
+            stmt.setDouble(9, result.getTotalMarks());
+            stmt.setDouble(10, result.getPercentage());
+            stmt.setBoolean(11, result.isPassed());
+
+            int affected = stmt.executeUpdate();
+            if (affected > 0) {
+                try (ResultSet rs = stmt.getGeneratedKeys()) {
+                    if (rs.next()) {
+                        result.setResultId(rs.getInt(1));
+                    }
+                }
+                return true;
+            }
+        }
         return false;
+    }
+
+    private void rollbackQuietly(Connection conn, Savepoint savepoint) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            if (savepoint != null) {
+                conn.rollback(savepoint);
+            }
+            conn.rollback();
+        } catch (SQLException rollbackEx) {
+            System.err.println("[AttemptDAO] Transaction rollback error: " + rollbackEx.getMessage());
+        }
+    }
+
+    private void restoreAndClose(Connection conn, boolean previousAutoCommit) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            conn.setAutoCommit(previousAutoCommit);
+        } catch (SQLException ignored) {
+        }
+        try {
+            conn.close();
+        } catch (SQLException ignored) {
+        }
     }
 
     /**
