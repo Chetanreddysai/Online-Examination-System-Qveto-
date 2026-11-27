@@ -233,4 +233,83 @@ public class DAOTest {
         int expiredCount = attemptDAO.expireTimedOutAttempts();
         assertTrue(expiredCount >= 0, "expireTimedOutAttempts must return non-negative count safely");
     }
+
+    public void testACIDExamFinalizationTransactionBoundaries() {
+        setUp();
+        // Null result or invalid identity guards must reject before opening transaction
+        assertFalse(attemptDAO.finalizeAttemptTransaction(null, SubmissionType.MANUAL),
+                "Null ExamResult must be rejected");
+
+        ExamResult invalidIdsResult = new ExamResult(0, -9999, 0, 0, 5, 3, 2, 1, 20.0, 50.0, 40.0, false, null);
+        assertFalse(attemptDAO.finalizeAttemptTransaction(invalidIdsResult, SubmissionType.MANUAL),
+                "Result with non-positive userId/examId/attemptId must be rejected");
+
+        ExamResult validResult = new ExamResult(0, 9999, 2, 1, 5, 5, 4, 1, 40.0, 50.0, 80.0, true, null);
+        // Non-terminal target status must be rejected
+        assertFalse(attemptDAO.finalizeAttemptTransaction(
+                9999, SubmissionType.MANUAL, AttemptStatus.IN_PROGRESS, validResult, null, null),
+                "ACID finalization into IN_PROGRESS must be rejected");
+
+        // Transaction against nonexistent attempt must safely roll back and return false without throwing
+        validResult.setAttemptId(-9999);
+        assertFalse(attemptDAO.finalizeAttemptTransaction(validResult, SubmissionType.AUTO_TIMEOUT),
+                "ACID auto-timeout finalization on nonexistent attempt must roll back safely");
+
+        java.util.List<Question> emptyQuestions = java.util.Collections.emptyList();
+        java.util.Map<Integer, String> emptyAnswers = java.util.Collections.emptyMap();
+        assertFalse(attemptDAO.finalizeAttemptTransaction(
+                999999, SubmissionType.MANUAL, AttemptStatus.SUBMITTED, validResult, emptyQuestions, emptyAnswers),
+                "ACID manual finalization on missing/unreachable attempt must roll back safely");
+    }
+
+    public void testResultDAOScoreCalculationAndPersistence() {
+        setUp();
+        // Percentage & pass/fail threshold calculations
+        assertEquals(0.0, ResultDAO.calculatePercentage(10.0, 0.0), "Zero max marks should yield 0.0% safely");
+        assertEquals(0.0, ResultDAO.calculatePercentage(-5.0, 50.0), "Negative score should yield 0.0%");
+        assertEquals(66.67, ResultDAO.calculatePercentage(20.0, 30.0), "Percentage should round to 2 decimal places");
+
+        assertTrue(ResultDAO.isPassingScore(50.0, 50.0), "Exact passing threshold must pass");
+        assertFalse(ResultDAO.isPassingScore(49.99, 50.0), "Just below threshold must fail");
+
+        // Build computed result from exam, questions, and partial candidate answers
+        Exam exam = new Exam(1, "Java Core", "Unit Test Exam", 30, 4, 40.0, 50.0, true);
+        java.util.List<Question> questions = java.util.Arrays.asList(
+                new Question(1, "Java", "Q1", "A", "B", "C", "D", "A", 10.0),
+                new Question(2, "Java", "Q2", "A", "B", "C", "D", "B", 10.0),
+                new Question(3, "Java", "Q3", "A", "B", "C", "D", "C", 10.0),
+                new Question(4, "Java", "Q4", "A", "B", "C", "D", "D", 10.0)
+        );
+        java.util.Map<Integer, String> answers = new java.util.HashMap<>();
+        answers.put(1, "a");   // Correct (case-insensitive)
+        answers.put(2, "B");   // Correct
+        answers.put(3, "A");   // Incorrect
+        answers.put(4, "  ");  // Blank -> unanswered
+
+        ExamResult computed = ResultDAO.buildComputedResult(101, 2, exam, questions, answers);
+        assertNotNull(computed, "Computed ExamResult should not be null");
+        assertEquals(4, computed.getTotalQuestions());
+        assertEquals(3, computed.getAnsweredCount());
+        assertEquals(2, computed.getCorrectCount());
+        assertEquals(1, computed.getIncorrectCount());
+        assertEquals(20.0, computed.getScore());
+        assertEquals(40.0, computed.getTotalMarks());
+        assertEquals(50.0, computed.getPercentage());
+        assertTrue(computed.isPassed(), "50.0% matches 50.0% passing threshold");
+
+        // Persistence & lookup safety checks
+        assertFalse(resultDAO.saveResult(null), "saveResult(null) must return false");
+        assertFalse(resultDAO.upsertResult(null), "upsertResult(null) must return false");
+
+        ExamResult invalidResult = new ExamResult(0, -1, 2, 1, 4, 0, 0, 0, 0.0, 40.0, 0.0, false, null);
+        assertFalse(resultDAO.saveResult(invalidResult), "saveResult with invalid attemptId must return false");
+        assertFalse(resultDAO.upsertResult(invalidResult), "upsertResult with invalid attemptId must return false");
+
+        assertNull(resultDAO.getResultByAttemptId(-9999), "getResultByAttemptId for negative ID must return null");
+        assertNull(resultDAO.getResultByAttemptId(Integer.MAX_VALUE), "getResultByAttemptId for nonexistent ID must return null");
+        assertFalse(resultDAO.resultExistsForAttempt(-9999), "resultExistsForAttempt for negative ID must return false");
+        assertFalse(resultDAO.resultExistsForAttempt(Integer.MAX_VALUE), "resultExistsForAttempt for nonexistent ID must return false");
+        assertNull(resultDAO.calculateAndSaveResult(-9999), "calculateAndSaveResult for negative ID must return null");
+        assertNull(resultDAO.calculateAndSaveResult(Integer.MAX_VALUE), "calculateAndSaveResult for nonexistent ID must return null");
+    }
 }
