@@ -1,10 +1,6 @@
 package com.qveto.exam;
 
-import com.qveto.exam.model.Exam;
-import com.qveto.exam.model.ExamResult;
-import com.qveto.exam.model.Role;
-import com.qveto.exam.model.SubmissionType;
-import com.qveto.exam.model.User;
+import com.qveto.exam.model.*;
 import com.qveto.exam.service.AuthService;
 import com.qveto.exam.service.ExamService;
 import com.qveto.exam.ui.ExamResultPanel;
@@ -15,9 +11,7 @@ import com.qveto.exam.util.AppConstants;
 import com.qveto.exam.util.SessionManager;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
 
 /**
  * Automated UI and Presentation Layer Unit Tests for Member 1 (Frontend Engineer).
@@ -459,6 +453,59 @@ public class FrontendUITest {
         panel.unlockAllControls();
         Assert.assertFalse(panel.isSubmissionLocked(), "Controls should be unlocked after unlockAllControls");
         Assert.assertTrue(panel.getSubmitBtn().isEnabled(), "Submit button should be re-enabled");
+
+        frame.dispose();
+    }
+
+    public void testExamResultScorecardUIDeckAndOutcomeBanners() {
+        MainFrame frame = new MainFrame();
+        ExamResultPanel resultPanel = new ExamResultPanel(frame);
+        Exam sampleExam = new Exam(1, "Fullstack Java Certification", "Comprehensive evaluation", 60, 3, 30.0, 50.0, true);
+
+        List<Question> questions = new ArrayList<>();
+        questions.add(new Question(101, "Java", "Which collection is synchronized?", "ArrayList", "Vector", "LinkedList", "HashSet", "B", 10.0));
+        questions.add(new Question(102, "Java", "What is default value of boolean?", "true", "false", "null", "0", "B", 10.0));
+        questions.add(new Question(103, "Java", "Which keyword prevents inheritance?", "static", "abstract", "final", "const", "C", 10.0));
+
+        // 1. Test PASSED Scorecard Scenario (20/30 = 66.7% >= 50%)
+        Map<Integer, String> passedAnswers = new HashMap<>();
+        passedAnswers.put(101, "B"); // Correct (+10)
+        passedAnswers.put(102, "A"); // Incorrect (0)
+        // 103 is skipped (0)
+        ExamResult passResult = new ExamResult(10, 501, 2, 1, 3, 2, 1, 1, 10.0, 30.0, 66.7, true, new java.sql.Timestamp(System.currentTimeMillis()));
+        passResult.setScore(20.0);
+        passResult.setPercentage(66.7);
+        passResult.setPassed(true);
+
+        resultPanel.displayResult(passResult, sampleExam, questions, passedAnswers);
+
+        Assert.assertNotNull(resultPanel.getStatusBannerLabel(), "Status banner should exist");
+        Assert.assertTrue(resultPanel.getStatusBannerLabel().getText().contains("PASSED"), "Status banner must celebrate PASSED");
+        Assert.assertEquals("PASSED", resultPanel.getOutcomeBadgeLabel().getText(), "Outcome badge should state PASSED");
+        Assert.assertEquals(new java.awt.Color(16, 185, 129), resultPanel.getOutcomeBadgeLabel().getForeground(), "Outcome badge should be green");
+        Assert.assertTrue(resultPanel.getScoreMetricLabel().getText().contains("20.0"), "Score metric should display 20.0");
+        Assert.assertTrue(resultPanel.getPercentageMetricLabel().getText().contains("66.7%"), "Percentage metric should display 66.7%");
+        Assert.assertEquals(67, resultPanel.getPerformanceProgressBar().getValue(), "Progress bar should round to 67%");
+        Assert.assertTrue(resultPanel.getCandidateMetaLabel().getText().contains("Attempt #501"), "Candidate meta bar must include attempt ID");
+
+        // Verify Review Table outcomes (Correct, Incorrect, Skipped)
+        Assert.assertEquals(3, resultPanel.getReviewTableModel().getRowCount(), "Table must have 3 question rows");
+        Assert.assertEquals("✔ Correct", resultPanel.getReviewTableModel().getValueAt(0, 4), "Q1 should be graded as Correct");
+        Assert.assertEquals("✘ Incorrect", resultPanel.getReviewTableModel().getValueAt(1, 4), "Q2 should be graded as Incorrect");
+        Assert.assertEquals("○ Skipped", resultPanel.getReviewTableModel().getValueAt(2, 4), "Q3 should be graded as Skipped");
+
+        // 2. Test FAILED Scorecard Scenario (0/30 = 0% < 50%)
+        ExamResult failResult = new ExamResult(11, 502, 2, 1, 3, 1, 0, 1, 0.0, 30.0, 0.0, false, new java.sql.Timestamp(System.currentTimeMillis()));
+        resultPanel.displayResult(failResult, sampleExam, questions, new HashMap<>());
+
+        Assert.assertTrue(resultPanel.getStatusBannerLabel().getText().contains("NOT MET"), "Status banner must indicate criteria NOT MET");
+        Assert.assertEquals("FAILED", resultPanel.getOutcomeBadgeLabel().getText(), "Outcome badge should state FAILED");
+        Assert.assertEquals(AppConstants.COLOR_DANGER, resultPanel.getOutcomeBadgeLabel().getForeground(), "Outcome badge should be red");
+        Assert.assertEquals(0, resultPanel.getPerformanceProgressBar().getValue(), "Progress bar should show 0%");
+
+        // 3. Test references preservation
+        Assert.assertEquals(failResult, resultPanel.getLastResult(), "Last result reference must be stored");
+        Assert.assertEquals(sampleExam, resultPanel.getLastExam(), "Last exam reference must be stored");
 
         frame.dispose();
     }
