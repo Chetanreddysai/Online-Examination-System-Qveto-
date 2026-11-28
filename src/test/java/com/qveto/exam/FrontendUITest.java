@@ -509,4 +509,114 @@ public class FrontendUITest {
 
         frame.dispose();
     }
+
+    public void testQuestionReviewTableOutcomeFiltering() {
+        MainFrame frame = new MainFrame();
+        ExamResultPanel resultPanel = new ExamResultPanel(frame);
+        Exam sampleExam = new Exam(1, "Advanced Java & Streams", "Evaluation", 45, 4, 40.0, 50.0, true);
+
+        List<Question> questions = new ArrayList<>();
+        questions.add(new Question(201, "Java", "Which interface does List implement?", "Collection", "Map", "Set", "Queue", "A", 10.0));
+        questions.add(new Question(202, "Java", "Which method starts a thread?", "run()", "start()", "init()", "execute()", "B", 10.0));
+        questions.add(new Question(203, "Java", "What is size of char in Java?", "8-bit", "16-bit", "32-bit", "64-bit", "B", 10.0));
+        questions.add(new Question(204, "Java", "Is String immutable in Java?", "No", "Yes", "Depends", "None", "B", 10.0));
+
+        Map<Integer, String> selected = new HashMap<>();
+        selected.put(201, "A"); // Correct (+10)
+        selected.put(202, "A"); // Incorrect (User 'A', Key 'B')
+        // 203 skipped
+        selected.put(204, "B"); // Correct (+10)
+
+        ExamResult result = new ExamResult(15, 601, 2, 1, 4, 3, 2, 1, 20.0, 40.0, 50.0, true, new java.sql.Timestamp(System.currentTimeMillis()));
+        resultPanel.displayResult(result, sampleExam, questions, selected);
+
+        // 1. Initial State: All 4 rows displayed
+        Assert.assertEquals(4, resultPanel.getReviewTableModel().getRowCount(), "Initial review table should contain all 4 questions");
+        Assert.assertTrue(resultPanel.getFilterStatusLabel().getText().contains("4 of 4"), "Status label should report 4 of 4 questions");
+
+        // 2. Filter: Correct Only
+        resultPanel.getFilterComboBox().setSelectedIndex(1);
+        Assert.assertEquals(2, resultPanel.getReviewTableModel().getRowCount(), "Filter 'Correct Only' should display exactly 2 rows");
+        Assert.assertEquals("✔ Correct", resultPanel.getReviewTableModel().getValueAt(0, 4), "Filtered row 1 outcome should be Correct");
+        Assert.assertEquals("✔ Correct", resultPanel.getReviewTableModel().getValueAt(1, 4), "Filtered row 2 outcome should be Correct");
+
+        // 3. Filter: Incorrect Only
+        resultPanel.getFilterComboBox().setSelectedIndex(2);
+        Assert.assertEquals(1, resultPanel.getReviewTableModel().getRowCount(), "Filter 'Incorrect Only' should display exactly 1 row");
+        Assert.assertEquals("✘ Incorrect", resultPanel.getReviewTableModel().getValueAt(0, 4), "Filtered row outcome should be Incorrect");
+        Assert.assertTrue(resultPanel.getReviewTableModel().getValueAt(0, 1).toString().contains("starts a thread"), "Row should be Question 202");
+
+        // 4. Filter: Skipped Only
+        resultPanel.getFilterComboBox().setSelectedIndex(3);
+        Assert.assertEquals(1, resultPanel.getReviewTableModel().getRowCount(), "Filter 'Skipped Only' should display exactly 1 row");
+        Assert.assertEquals("○ Skipped", resultPanel.getReviewTableModel().getValueAt(0, 4), "Filtered row outcome should be Skipped");
+        Assert.assertTrue(resultPanel.getReviewTableModel().getValueAt(0, 1).toString().contains("size of char"), "Row should be Question 203");
+
+        // 5. Keyword search filter
+        resultPanel.getFilterComboBox().setSelectedIndex(0); // Reset to All
+        Assert.assertEquals(4, resultPanel.getReviewTableModel().getRowCount(), "Reset to All should display 4 rows");
+
+        resultPanel.getSearchField().setText("immutable");
+        Assert.assertEquals(1, resultPanel.getReviewTableModel().getRowCount(), "Search 'immutable' should return 1 matching question");
+        Assert.assertTrue(resultPanel.getReviewTableModel().getValueAt(0, 1).toString().contains("String immutable"), "Should find Question 204");
+
+        resultPanel.getSearchField().setText("nonExistentKeyword123");
+        Assert.assertEquals(0, resultPanel.getReviewTableModel().getRowCount(), "Search non-existent should clear all rows");
+
+        resultPanel.getSearchField().setText("");
+        Assert.assertEquals(4, resultPanel.getReviewTableModel().getRowCount(), "Clearing search field should restore all 4 questions");
+
+        frame.dispose();
+    }
+
+    public void testAnswerKeyProtectionAndAntiLeakSafeguards() {
+        MainFrame frame = new MainFrame();
+        ExamResultPanel resultPanel = new ExamResultPanel(frame);
+        Exam sampleExam = new Exam(1, "Secure Assessment", "Evaluation", 30, 2, 20.0, 50.0, true);
+
+        List<Question> questions = new ArrayList<>();
+        questions.add(new Question(301, "Security", "What does TLS provide?", "Confidentiality", "Noise", "Lag", "None", "A", 10.0));
+        questions.add(new Question(302, "Security", "Which is a hashing algorithm?", "AES", "SHA-256", "RSA", "DES", "B", 10.0));
+
+        Map<Integer, String> selected = new HashMap<>();
+        selected.put(301, "A"); // Correct
+        selected.put(302, "C"); // Incorrect
+
+        ExamResult result = new ExamResult(16, 701, 2, 1, 2, 2, 1, 1, 10.0, 20.0, 50.0, true, new java.sql.Timestamp(System.currentTimeMillis()));
+
+        // 1. Test Protected Mode (allowAnswerKeyReveal = false)
+        resultPanel.displayResult(result, sampleExam, questions, selected, false);
+
+        Assert.assertFalse(resultPanel.isAnswerKeysRevealed(), "Answer keys should be marked protected");
+        Assert.assertTrue(resultPanel.getSecurityBadgeLabel().getText().contains("Protected"), "Security badge should warn Answer Keys Protected");
+
+        // Correct answer column must be masked as Protected (Hidden) - NEVER leak "Option A" or "Option B"
+        String col3Row0 = resultPanel.getReviewTableModel().getValueAt(0, 3).toString();
+        String col3Row1 = resultPanel.getReviewTableModel().getValueAt(1, 3).toString();
+        Assert.assertTrue(col3Row0.contains("Protected"), "Correct answer column must mask key in Row 0");
+        Assert.assertTrue(col3Row1.contains("Protected"), "Correct answer column must mask key in Row 1");
+        Assert.assertFalse(col3Row0.contains("Option A"), "Column 3 MUST NOT leak 'Option A' when protected");
+        Assert.assertFalse(col3Row1.contains("Option B"), "Column 3 MUST NOT leak 'Option B' when protected");
+
+        // Inspection details text must safeguard the key
+        String inspectDetails = resultPanel.getQuestionInspectionDetails(0);
+        Assert.assertTrue(inspectDetails.contains("Protected"), "Inspection text must state answer key is protected");
+        Assert.assertFalse(inspectDetails.contains("Correct Answer: Option A"), "Inspection text MUST NOT leak authoritative key when sealed");
+
+        // 2. Test Unsealed Mode (allowAnswerKeyReveal = true)
+        resultPanel.setAnswerKeysRevealed(true);
+        Assert.assertTrue(resultPanel.isAnswerKeysRevealed(), "Answer keys should now be unsealed");
+        Assert.assertTrue(resultPanel.getSecurityBadgeLabel().getText().contains("Released"), "Security badge should state Answer Keys Released");
+
+        String unsealedCol3Row0 = resultPanel.getReviewTableModel().getValueAt(0, 3).toString();
+        String unsealedCol3Row1 = resultPanel.getReviewTableModel().getValueAt(1, 3).toString();
+        Assert.assertEquals("Option A", unsealedCol3Row0, "Unsealed row 0 should display Option A");
+        Assert.assertEquals("Option B", unsealedCol3Row1, "Unsealed row 1 should display Option B");
+
+        String unsealedInspect = resultPanel.getQuestionInspectionDetails(0);
+        Assert.assertTrue(unsealedInspect.contains("Option A"), "Unsealed inspection should now present Option A");
+        Assert.assertTrue(unsealedInspect.contains("Accurate!"), "Unsealed rationale should provide pedagogical reinforcement");
+
+        frame.dispose();
+    }
 }
